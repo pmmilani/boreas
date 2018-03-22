@@ -6,7 +6,7 @@
 # potentially need to run "pip install setuptools" or an equivalent command.
 from setuptools import setup
 
-with open("README", 'r') as f:
+with open("README.md", 'r') as f:
     long_description = f.read()
 
 setup(

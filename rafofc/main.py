@@ -21,11 +21,11 @@ def PrintInfo():
     dist = get_distribution('rafofc')
     print('Version: {}'.format(dist.version))
     
-    # Try to load the model
+    # Try to load the model and print information about it
     print('Attempting to load the default model...')
     rafo = models.MLModel()
     print('Defaul model was found and can be loaded properly.')
-
+    rafo.PrintDescription()
 
 
     

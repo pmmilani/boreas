@@ -46,7 +46,8 @@ class MLModel:
         
         assert os.path.isfile(filepath), error_msg # make sure the file exists  
         
-        self.__model = joblib.load(filepath) # saved as a private variable     
+        # saved as private variables or the class 
+        self.__description, self.__model = joblib.load(filepath)     
             
     """
     This function is called to predict the diffusivity given the features.
@@ -56,5 +57,13 @@ class MLModel:
     """
     def Predict(self, x):
         return self.__model.predict(x)
+        
+    """
+    This function is called to print out the string that is attached to the
+    model. This can be called to make sure that we are loading the model that
+    we want.
+    """
+    def PrintDescription(self):
+        print(self.__description)
         
         

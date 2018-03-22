@@ -1,0 +1,12 @@
+# ------------------------- requirements.txt file ----------------------------#
+# This file contains all the libraries that must be installed (and their 
+# versions) for the current distribution of RaFoFC to work correctly.
+
+# This is an implicit value, here for clarity
+--index-url https://pypi.python.org/simple/
+
+# List of python libraries to install
+pytecplot>=0.9.0
+numpy>=1.14.0
+sklearn==0.19.1
+

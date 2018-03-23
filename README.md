@@ -11,10 +11,10 @@ To test the program while it is being developed, run:
     python setup.py develop [--user] [--uninstall]
     
 You will need the flag --user in case you don't have 
-administrator privileges in the machine you are installing
-the package to. The flag --uninstall can be added to uninstall
-the package. The commands above will also install some
-dependencies (included in the file "requirements.txt")
+administrator privileges in the machine to which you are 
+installing the package. The flag --uninstall can be added 
+to uninstall the package. The commands above will also install
+some dependencies (included in the file "requirements.txt")
 needed for this package. 
 
 ### Usage

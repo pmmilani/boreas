@@ -1,11 +1,13 @@
-#---------- RaFoFC v1.0 - Random Forest for Film Cooling Package -------------#
-Author: Pedro Milani (pmmilani@stanford.edu)
+## RaFoFC v1.0 - Random Forest for Film Cooling Package
+Author: Pedro Milani (email: pmmilani@stanford.edu)
 
+### Installation
+To install, run the following command from this directory: 
 
-To install, run the following command from this directory:
     python setup.py install [--user]
     
 To test the program while it is being developed, run:
+
     python setup.py develop [--user] [--uninstall]
     
 You will need the flag --user in case you don't have 
@@ -15,13 +17,13 @@ the package. The commands above will also install some
 dependencies (included in the file "requirements.txt")
 needed for this package. 
 
+### Usage
+After installation, you can just use the following import 
+statement in any Python program:
 
-Then, to use it, you can just use the following import 
-statement in any python program:
     import rafofc
-
     
 To test everything was installed properly, run the following
 command in a Python script after the import statement above:
+
     rafofc.PrintInfo()
-    

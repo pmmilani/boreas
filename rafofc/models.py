@@ -1,6 +1,6 @@
-# ----------------------------- models.py ------------------------------------#
-# This file contains all the classes used to load and interact with the machine
-# learning model that will make predictions on a turbulent diffusivity
+# ---------------------------------- models.py -----------------------------------------#
+# This file contains all the classes used to load and interact with the machine learning
+# model that will make predictions on a turbulent diffusivity
 
 
 # ------------ Import statements
@@ -12,18 +12,16 @@ import pkg_resources
 
 
 """
-This class is a diffusivity model that maps from local flow variables to a 
-turbulent diffusivity. Here is where a pre-trained machine learning model
-comes is.
+This class is a diffusivity model that maps from local flow variables to a turbulent  
+diffusivity. Here is where a pre-trained machine learning model comes in.
 """
 class MLModel:
 
     """ 
-    This initializes the class by loading a previously trained model 
-    that was saved using joblib. The user can instantiate it without 
-    arguments to load the default model, shipped with the package.
-    Alternatively, you can instantiate it with one argument representing
-    the path to another saved model.
+    This initializes the class by loading a previously trained model that was saved
+    using joblib. The user can instantiate it without arguments to load the default
+    model, shipped with the package. Alternatively, you can instantiate it with one
+    argument representing the path to another saved model.
     """   
     def __init__(self, filepath=None):
         
@@ -50,18 +48,17 @@ class MLModel:
         self.__description, self.__model = joblib.load(filepath)     
             
     """
-    This function is called to predict the diffusivity given the features.
-    It assumes that the underlying implementation (random forests from sklearn)
-    contain a method called predict. 
+    This function is called to predict the diffusivity given the features. It assumes 
+    that the underlying implementation (random forests from sklearn) contain a method 
+    called predict. 
     x.shape = (N_POINTS, N_FEATURES)
     """
     def Predict(self, x):
         return self.__model.predict(x)
         
     """
-    This function is called to print out the string that is attached to the
-    model. This can be called to make sure that we are loading the model that
-    we want.
+    This function is called to print out the string that is attached to the model. 
+    This can be called to make sure that we are loading the model that we want.
     """
     def PrintDescription(self):
         print(self.__description)

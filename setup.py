@@ -1,9 +1,9 @@
-#-------------------- setup.py file for RaFoFC package -----------------------#
+#------------------------- setup.py file for RaFoFC package ----------------------------#
 # https://stackoverflow.com/questions/1471994/what-is-setup-py/23998536
 
-# Note: this installs the requirements needed to the package, but this needs
-# setuptools to be installed to work. Make sure it is installed; you might 
-# potentially need to run "pip install setuptools" or an equivalent command.
+# Note: this installs the requirements needed to the package, but this needs setuptools
+# to be installed to work. Make sure it is installed; you might potentially need to run
+# "pip install setuptools" or an equivalent command.
 from setuptools import setup
 
 with open("README.md", 'r') as f:

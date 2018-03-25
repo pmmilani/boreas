@@ -24,7 +24,7 @@ def GetFloatFromUser(message):
             var = float(var)
             if var < 0.0: raise ValueError('Must be positive!')
         except: # if var is not float or positive, it comes here
-            print("\t Please, enter a valid response...")
+            print("\t Please, enter a valid positive real number response...")
             var = None
             
     return var
@@ -57,8 +57,14 @@ def GetVarNameFromUser(message, dataset, default_name):
 """
 This helper function returns true if the given name is a valid name of a variable
 in the dataset, False otherwise.
-"""    
+"""
+
 def IsVariable(name, dataset):
+    """
+    JL Comment: What makes a variable name valid?  It would be helpful to specify that here in the comments.
+    JL Comment: This would be another nice place for a doctest.
+    """
+
     try:
         # if name is not a valid variable name, exception is thrown
         _ = dataset.variable(name) 
@@ -75,6 +81,9 @@ This class is holds the information of a single Tecplot data file internally.
 class TPDataset:
 
     def __init__(self, filepath, zone=None):
+        """
+        JL Comment: There should be documentation on each of the input parameters for initializing this class
+        """
         
         # make sure the file exists 
         assert os.path.isfile(filepath), "Tecplot file not found!"
@@ -199,7 +208,11 @@ class TPDataset:
     arrays, which will be used in all the subsequent processing (including ML). 
     """
     def ExtractQuantityArrays(self):
-    
+        """
+        JL Comment: This method is too long.  Please keep methods < 30 lines long.  The velocity gradients,
+        scalar gradients and other quantities should all be in separate methods.  Each of those methods
+        should have a doctest.
+        """
         # First, calculate locations of the cell centers (X,Y,Z are usually on the node)
         tecplot.data.operate.execute_equation('{X_cell} = {X}',
                               value_location=tecplot.constant.ValueLocation.CellCentered)

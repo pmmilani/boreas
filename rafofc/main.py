@@ -10,6 +10,10 @@ from rafofc.tecplot_data import TPDataset, RANSDataset
 
 
 """
+JL COMMENT: This file should be renamed, e.g. helper.py
+"""
+
+"""
 This simple function can be called by the user to check that everything was installed 
 properly. We print a welcome message, the version of the package, and attempt to load
 the pre-trained model to make sure the data file is there.
@@ -37,6 +41,9 @@ def TestTecplot(path, zone):
     data.CalculateDerivatives()
     #data.SaveDataset("out_" + path) STILL UNTESTED
     #rans_data = data.ExtractQuantityArrays()    
-    
+
+    # This function is currently broken--please avoid code choices via commenting
     return rans_data
-    
+
+
+

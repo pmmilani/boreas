@@ -1,12 +1,10 @@
 ## Script to test the package
 
-import rafofc
+from rafofc.main import printInfo, testTecplot
 
 def main():
-    rafofc.PrintInfo()
-
-    # JL Comment: Where is Wrapper defined?  I don't have it.
-    # rafofc.Wrapper()
-    
+    printInfo()
+    data = testTecplot('cube.plt')
+        
 if __name__ == "__main__":
     main()

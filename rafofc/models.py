@@ -1,6 +1,8 @@
-# ---------------------------------- models.py -----------------------------------------#
-# This file contains all the classes used to load and interact with the machine learning
-# model that will make predictions on a turbulent diffusivity
+#----------------------------------- models.py -----------------------------------------#
+""" 
+This file contains all the classes used to load and interact with the machine learning
+model that will make predictions on a turbulent diffusivity
+"""
 
 
 # ------------ Import statements
@@ -11,24 +13,31 @@ import os
 import pkg_resources
 
 
-"""
-This class is a diffusivity model that maps from local flow variables to a turbulent  
-diffusivity. Here is where a pre-trained machine learning model comes in.
-"""
-"""
-JL Comment: It's typical in python for the comments to go under the method name or class name, not above it.
-This is important for practical reasons as well (e.g. doctests), not just visual reasons.
-https://www.python.org/dev/peps/pep-0257/
-"""
-class MLModel:
 
-    """ 
-    This initializes the class by loading a previously trained model that was saved
-    using joblib. The user can instantiate it without arguments to load the default
-    model, shipped with the package. Alternatively, you can instantiate it with one
-    argument representing the path to another saved model.
-    """   
+class MLModel:
+    """
+    This class is a diffusivity model that maps from local flow variables to a turbulent  
+    diffusivity. Here is where a pre-trained machine learning model comes in.
+    """
+
     def __init__(self, filepath=None):
+        """
+        Constructor for MLModel class        
+                    
+        This initializes the class by loading a previously trained model that was saved
+        using joblib. The user can instantiate it without arguments to load the default
+        model, shipped with the package. Alternatively, you can instantiate it with one
+        argument representing the path to another saved model. 
+        
+        The model loaded from disk has to be created using joblib.dump() with protocol 2 
+        (compatible with python 2.7), and it has to be a list [string, model] where the 
+        model itself is the second element, and the first element is a string describing
+        the model.
+        
+        Arguments:
+        filepath -- optional, the path from where to load the pickled ML model. If not 
+                    supplied, will load the default model.
+        """ 
         
         # if no path is provided, load the default model
         if filepath is None: 
@@ -52,32 +61,31 @@ class MLModel:
         # saved as private variables or the class 
         self.__description, self.__model = joblib.load(filepath)     
             
-    """
-    This function is called to predict the diffusivity given the features. It assumes 
-    that the underlying implementation (random forests from sklearn) contain a method 
-    called predict. 
-    x.shape = (N_POINTS, N_FEATURES)
-    """
-    def Predict(self, x):
+    
+    def predict(self, x):    
         """
-        JL Comment: It's really unusual in python to have methods that have capital names.  It's more
-        common to use lower case for methods and reserve capitalization for classes.  This would mean
-        that you can have a method called printDescripton or print_description, but rarely PrintDescription
-        or Predict.
-
-        JL Comment: This would be a good place for a doctest.  Make sure that predict returns what you'd expect on
-        a point for which you know the answer.  A great way to do this is to have it make prediction on an easy point,
-        then include this as the correct answer in the doctest.
-        For information on doctests, check here: https://docs.python.org/2/library/doctest.html
-        """
-        return self.__model.predict(x)
-
+        Predicts the diffusivity given the features. 
         
-    """
-    This function is called to print out the string that is attached to the model. 
-    This can be called to make sure that we are loading the model that we want.
-    """
-    def PrintDescription(self):
+        It assumes that the underlying implementation (default: random forests from
+        sklearn) contains a method called predict.
+        
+        Arguments:
+        x -- numpy array (N_POINTS, N_FEATURES) of features
+        
+        Returns:
+        numpy array (N_POINTS) for the turbulent diffusivity predicted at each cell
+        """       
+
+        return self.__model.predict(x)
+    
+    def printDescription(self):
+        """
+        Prints descriptive string attached to the loaded model.
+        
+        This function is called to print out the string that is attached to the model. 
+        This can be called to make sure that we are loading the model that we want.
+        """
+        
         print(self.__description)
         
         

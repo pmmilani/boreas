@@ -6,8 +6,7 @@ model that will make predictions on a turbulent diffusivity
 
 
 # ------------ Import statements
-# joblib is used to load trained models from disk
-from sklearn.externals import joblib 
+from sklearn.externals import joblib # joblib is used to load trained models from disk
 from sklearn.ensemble import RandomForestRegressor
 import os
 import pkg_resources
@@ -70,13 +69,18 @@ class MLModel:
         sklearn) contains a method called predict.
         
         Arguments:
-        x -- numpy array (N_POINTS, N_FEATURES) of features
+        x -- numpy array (num_useful, N_FEATURES) of features
         
         Returns:
-        numpy array (N_POINTS) for the turbulent diffusivity predicted at each cell
+        y -- numpy array (num_useful,) for the turbulent diffusivity predicted at each 
+             cell
         """       
-
-        return self.__model.predict(x)
+        
+        print("ML model loaded: {}".format(self.__description))
+        print("Predicting turbulent diffusivity using ML model...", end="", flush=True)
+        y = self.__model.predict(x)
+        print(" Done")
+        return y
     
     def printDescription(self):
         """

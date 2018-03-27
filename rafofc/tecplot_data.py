@@ -5,9 +5,12 @@ load/edit/save a tecplot plot file
 """
 
 # ------------ Import statements
+from sklearn.externals import joblib # joblib is used to load trained models from disk
+import timeit # for timing the derivative
 import tecplot
 import os
 import numpy as np
+from rafofc.rans_dataset import RANSDataset
 
 
 def getFloatFromUser(message):
@@ -30,7 +33,7 @@ def getFloatFromUser(message):
             var = float(var)
             if var < 0.0: raise ValueError('Must be positive!')
         except: # if var is not float or positive, it comes here
-            print("\t Please, enter a valid positive real number response...")
+            print("\t Please, enter a positive real number...")
             var = None
             
     return var    
@@ -65,8 +68,8 @@ def getVarNameFromUser(message, dataset, default_name):
             name = default_name           
         
         if not isVariable(name, dataset):
-            print("\t Please, enter a valid variable name in the Tecplot file." +
-                  'Variable named "{}" does not exist.'.format(name))
+            print('\t Variable "{}" not found.'.format(name)
+                  + " Please, enter a valid variable name in the Tecplot file.")
             name = None                    
             
     return name
@@ -96,14 +99,29 @@ def isVariable(name, dataset):
     except: 
         return False
     
-
+def writeValues(file, variable):
+    """
+    Writes a single variable (one entry per line) in the Fluent interpolation file
+      
+    Arguments:
+    file -- the file object to which we are writing the current variable
+    variable -- any iterable (e.g. numpy array or list) with one entry per location where
+                we write    
+    """
+    
+    file.write("(") # must start with a parenthesis
+    
+    for x in variable:
+        file.write("{:.6e}\n".format(x))
+        
+    file.write(")\n") # must end with parenthesis and new line
 
 class TPDataset:
     """
     This class is holds the information of a single Tecplot data file internally.
     """
 
-    def __init__(self, filepath, zone=None):
+    def __init__(self, filepath, zone=None, use_default_names=False):
         """
         Constructor for MLModel class
         
@@ -114,11 +132,14 @@ class TPDataset:
         zone -- optional, tells us in which zone to look for the solution. Can be either
                 an integer (e.g. 0, 1, ...) or a string with the zone name (e.g. "fluid").
                 By default, we look into zone 0. Supply a different zone in case the RANS
-                solution for the flow field is not in zone 0.        
+                solution for the flow field is not in zone 0.
+        use_default_names -- optional, whether to use default names (from Fluent) to 
+                             fetch variables in the .plt file. Must be false unless all 
+                             variables of interest in tecplot have the default name.
         """
         
         # Make sure the file exists 
-        assert os.path.isfile(filepath), "Tecplot file not found!"
+        assert os.path.isfile(filepath), "Tecplot file {} not found!".format(filepath)
         
         # Load the file. Print number of zones/variables as sanity check
         print("Loading Tecplot dataset...")
@@ -140,39 +161,51 @@ class TPDataset:
               + " and {} nodes".format(self.__zone.num_points))
         
         # Initializes a dictionary containing correct names for this dataset
-        self.initializeVarNames()
+        self.initializeVarNames(use_default_names)
+        
+        # Initialize rans_data as None
+        self.rans_data = None
 
     
-    def initializeVarNames(self):
+    def initializeVarNames(self, use_default_names=False):
         """
         Initializes a dictionary containing the string names for variables of interest.
         
         This function is called to initialize, internally, the correct names for each of 
         the variables that we need from the Tecplot file. It will ask for user input. The
         user can enter empty strings to use a default variable name (in ANSYS Fluent).
+        
+        use_default_names -- optional, whether to use default names (from Fluent) to 
+                             fetch variables in the .plt file. Must be false unless all 
+                             variables of interest in tecplot have the default name.
         """
         
         # this dictionary maps from key to the actual variable name in Tecplot file
         self.__var_names = {} 
         
-        # These are the keys for the 8 relevant variables we need
-        variables = ["U", "V", "W", "Temperature", "TKE", "epsilon",
-                     "turbulent viscosity", "distance to wall"]
+        # These are the keys for the 9 relevant variables we need
+        variables = ["U", "V", "W", "Density", "Temperature", "TKE", "epsilon",
+                     "turbulent viscosity", "distance to wall", "laminar viscosity"]
                      
         # These are the default names we enter if user refuses to provide one (from ANSYS
         # Fluent solutions)
-        default_names = ["X Velocity", "Y Velocity", "Z Velocity", "UDS 0", 
+        default_names = ["X Velocity", "Y Velocity", "Z Velocity", "Density", "UDS 0", 
                          "Turbulent Kinetic Energy", "Turbulent Dissipation Rate",
-                         "Turbulent Viscosity", "Wall Distribution"]
+                         "Turbulent Viscosity", "Wall Distribution", "Laminar Viscosity"]
                          
         # Ask user for variable names and stores them in the dictionary
-        for i, key in enumerate(variables):
-            self.__var_names[key] = getVarNameFromUser("Enter name for "
-                                                       + "{} variable: ".format(key), 
-                                                        self.__dataset, default_names[i])  
-              
+        if use_default_names:
+            for i, key in enumerate(variables):
+                self.__var_names[key] = default_names[i]
+        
+        else: # default usage: ask for names
+            for i, key in enumerate(variables):
+                self.__var_names[key] = getVarNameFromUser("Enter name for "
+                                                           + "{} variable: ".format(key), 
+                                                            self.__dataset, default_names[i])
+            
     
-    def normalize(self, U=None, D=None, rho=None, miu=None, deltaT=None):
+    def normalize(self, U0=None, D=None, rho0=None, miu=None, deltaT=None):
         """
         Collects scales from the user, which are used to non-dimensionalize data.
         
@@ -182,34 +215,34 @@ class TPDataset:
         must be given in the same units as the dataset.
         
         Arguments:
-        U -- velocity scale
+        U0 -- velocity scale
         D -- length scale
-        rho -- density
+        rho0 -- density
         miu -- laminar dynamic viscosity
         deltaT -- temperature scale
         """
         
         # Read in the five quantities if they are not passed in
-        if U is None:
-            U = getFloatFromUser("Enter velocity scale (typically hole bulk velocity): ")        
+        if U0 is None:
+            U0 = getFloatFromUser("Enter velocity scale (typically hole bulk velocity): ")        
         if D is None:
             D = getFloatFromUser("Enter length scale (typically hole diameter): ")            
-        if rho is None:
-            rho = getFloatFromUser("Enter density scale: ")            
+        if rho0 is None:
+            rho0 = getFloatFromUser("Enter density scale: ")            
         if miu is None:
             miu = getFloatFromUser("Enter dynamic viscosity (miu): ")            
         if deltaT is None:
             deltaT = getFloatFromUser("Enter temperature delta (Tmax-Tmin): ")
             
         # Set instance variables to hold them
-        self.U = U
+        self.U0 = U0
         self.D = D
-        self.rho = rho
+        self.rho0 = rho0
         self.miu = miu
         self.deltaT = deltaT
         
         # Calculate Re and print warning if necessary
-        Re = rho*U*D/miu
+        Re = rho0*U0*D/miu
         print("Reynolds number: Re = {}".format(Re))
         if Re < 1000 or Re > 6000: # print warning
             print("\t Warning: the model was calibrated with data between " 
@@ -228,6 +261,8 @@ class TPDataset:
         print("Taking x, y, z derivatives. This can take a while...")
         
         variables = ["U", "V", "W", "Temperature"] # variables that we differentiate        
+        
+        tic=timeit.default_timer() # timing
         
         # Go through each of them and create ddx, ddy, ddz
         for var in variables:
@@ -252,9 +287,14 @@ class TPDataset:
                               value_location=tecplot.constant.ValueLocation.CellCentered,
                               variable_data_type=tecplot.constant.FieldDataType.Float)
             print(" --- ddz done!")
+        
+        # timing
+        toc=timeit.default_timer()
+        print("Taking derivatives took {:.1f} minutes".format((toc - tic)/60))
 
     
-    def extractQuantityArrays(self):
+    def extractMLFeatures(self, threshold=1e-4, rans_data_load_path=None, 
+                          rans_data_dump_path=None):
         """
         Extract quantities from the tecplot file into numpy arrays.
         
@@ -262,6 +302,21 @@ class TPDataset:
         arrays, which will be used in all the subsequent processing (including ML). It
         initializes an instance of the RANSDataset class and stores all numpy arrays in
         that class.
+        
+        Arguments:
+        threshold -- magnitude cut-off for the temperature scalar gradient: only use 
+                     points with magnitude higher than this. Default is 1e-4. Only
+                     change this if you know what you are doing.
+        rans_data_load_path -- optional keyword argument. If this is not None, this 
+                               function will attempt to read rans_data from disk and
+                               restore it instead of recalculating everything. The path
+                               where rans_data is located is given by rans_data_path.
+        rans_data_dump_path -- optional keyword argument. If this is not None, and the 
+                               above argument is None, then this method will calculate
+                               rans_data for the current dataset and then save it to
+                               disk (to path specified by rans_data_dump_path). Use it
+                               to avoid recalculating features (since it is an expensive
+                               operation)
         
         Returns:
         rans_data -- instance of RANSDataset class containing numpy arrays extracted from
@@ -273,48 +328,133 @@ class TPDataset:
         tecplot.data.operate.execute_equation('{Y_cell} = {Y}',
                               value_location=tecplot.constant.ValueLocation.CellCentered)
         tecplot.data.operate.execute_equation('{Z_cell} = {Z}',
-                              value_location=tecplot.constant.ValueLocation.CellCentered)
-                              
+                              value_location=tecplot.constant.ValueLocation.CellCentered)                              
         
+        # If we were passed a valid rans_data_path, restore it from disk and return its 
+        # value of x_features as x 
+        if rans_data_load_path:
+            if os.path.isfile(rans_data_load_path):
+                print("A valid path for rans_data was supplied. "
+                      + "It will be read from disk...", end="", flush=True)
+                self.__rans_data = joblib.load(rans_data_load_path)
+                x = self.__rans_data.x_features
+                print(" Done")
+                return x 
+        
+        #---- These next four commands initialize the RANSDataset and do all the necessary
+        #---- processing to obtain features.
         # Initialize the RANS dataset (numpy arrays only) with num_elements.
-        rans_data = RANSDataset(self.__zone.num_elements)
+        self.__rans_data = RANSDataset(self.__zone.num_elements, self.U0, self.D, 
+                                       self.rho0, self.deltaT)
+        # Fill the RANSDataset instance with relevant quantities from this zone
+        self.__rans_data.fillAndNonDimensionalize(self.__zone, self.__var_names)
+        # Determine which points should be used
+        self.__rans_data.determineShouldUse(threshold) 
+        # Produces features used for ML prediction        
+        x = self.__rans_data.produceFeatures()       
+        #---- Finished calculating rans_data       
         
-        ### Extract appropriate quantities below:        
-        # Cell-centered locations:
-        rans_data.x = np.asarray(self.__zone.values('X_cell')[:])
-        rans_data.y = np.asarray(self.__zone.values('Y_cell')[:])
-        rans_data.z = np.asarray(self.__zone.values('Z_cell')[:])
-        
-        # Scalar concentration
-        rans_data.T = np.asarray(self.__zone.values(self.__var_names['Temperature'])[:])
-        
-        # Velocity Gradients: dudx, dudy, dudz, dvdx, dydy, dydz, dwdx, dwdy, dwdz 
-        rans_data.gradU[:, 0, 0] = np.asarray(self.__zone.values("ddx_U")[:])
-        rans_data.gradU[:, 1, 0] = np.asarray(self.__zone.values("ddy_U")[:])
-        rans_data.gradU[:, 2, 0] = np.asarray(self.__zone.values("ddz_U")[:])
-        rans_data.gradU[:, 0, 1] = np.asarray(self.__zone.values("ddx_V")[:])
-        rans_data.gradU[:, 1, 1] = np.asarray(self.__zone.values("ddy_V")[:])
-        rans_data.gradU[:, 2, 1] = np.asarray(self.__zone.values("ddz_V")[:])
-        rans_data.gradU[:, 0, 2] = np.asarray(self.__zone.values("ddx_W")[:])
-        rans_data.gradU[:, 1, 2] = np.asarray(self.__zone.values("ddy_W")[:])
-        rans_data.gradU[:, 2, 2] = np.asarray(self.__zone.values("ddz_W")[:])
-        
-        # Temperature Gradients: dTdx, dTdy, dTdz 
-        rans_data.gradT[:, 0] = np.asarray(self.__zone.values("ddx_Temperature")[:])
-        rans_data.gradT[:, 1] = np.asarray(self.__zone.values("ddy_Temperature")[:])
-        rans_data.gradT[:, 2] = np.asarray(self.__zone.values("ddz_Temperature")[:]) 
-        
-        # Other scalar: tke, epsilon, nu_t, distance to wall
-        rans_data.tke = np.asarray(self.__zone.values(self.__var_names['TKE'])[:])
-        rans_data.epsilon = np.asarray(self.__zone.values(self.__var_names['epsilon'])[:])
-        rans_data.nut = np.asarray(self.__zone.values(self.__var_names['turbulent viscosity'])[:])
-        rans_data.d = np.asarray(self.__zone.values(self.__var_names['distance to wall'])[:])        
-        
+        # If a dump path is supplied, then save self.__rans_data to disk
+        if rans_data_dump_path:
+            print("Saving rans_data to disk...")
+            joblib.dump(self.__rans_data, rans_data_dump_path, protocol=2)           
         
         # return the extracted arrays
-        return rans_data
+        return x
+        
+    def addMLDiffusivity(self, alpha_t):
+        """
+        Adds alpha_t_ML and should_use as variables in the Tecplot file.
+        
+        This method takes in a diffusivity array alpha_t that was predicted by the 
+        machine learning model and adds that as a variable to the Tecplot file. It
+        also adds should_use, which is very useful for visualization. should_use is 1
+        where we use the ML model and 0 where we use the default Reynolds analogy.
+        
+        Arguments:
+        alpha_t -- numpy array shape (num_useful, ) with the dimensionless turbulent
+                   diffusivity predicted at each cell. 
+        """
+    
+        # First, create a diffusivity that is dimensional and available at every cell
+        alpha_t_full = self.__rans_data.fillDiffusivity(alpha_t)
+        
+        # Creates a variable called "alpha_t_ML" and "should_use" everywhere
+        self.__dataset.add_variable(name="alpha_t_ML",
+                                    dtypes=tecplot.constant.FieldDataType.Float,
+                                    locations=tecplot.constant.ValueLocation.CellCentered)
+        self.__dataset.add_variable(name="should_use",
+                                    dtypes=tecplot.constant.FieldDataType.Int16,
+                                    locations=tecplot.constant.ValueLocation.CellCentered)
+        
+        # Add alpha_t_full to the zone
+        assert self.__zone.num_elements == alpha_t_full.size, \
+                                "alpha_t_full has wrong number of entries"
+        self.__zone.values("alpha_t_ML")[:] = alpha_t_full.tolist()
+
+        # Add should_use to the zone                
+        self.__zone.values("should_use")[:] = self.__rans_data.should_use.tolist()           
     
     
+    def createInterpFile(self, path, variable_list, outname_list):
+        """
+        Creates a Fluent interpolation file with the variables specified in variable_list
+        
+        Arguments:
+        path -- path where .ip file should be saved.
+        variable_list -- a list of strings containing names of variables present in the
+                         tecplot .plt file that should be present in the interpolation
+                         file.
+        outname_list -- a list of strings indicating the desired name for the variables
+                        in the interpolation file. Typically, we use user defined scalars
+                        to input diffusivity, so name should be uds-0, uds-1, etc.                        
+        """
+        
+        print("Writing interpolation file to read alpha_t in Fluent...", 
+                end="", flush=True)
+        
+        # number of points that will be written
+        N = self.__zone.num_elements
+        
+        # First, get x,y,z from the cell center
+        x = self.__zone.values("X_cell")[:]
+        y = self.__zone.values("Y_cell")[:]
+        z = self.__zone.values("Z_cell")[:]
+        
+        assert (len(x) == N and len(y) == N and len(z) == N), \
+                                "x,y,z variables have wrong number of entries!"
+        
+        # Now, get a list of variables (as numpy arrays) that will be written
+        vars = []
+        for var_name in variable_list:
+            var = self.__zone.values(var_name)[:]
+            vars.append(var)
+        
+        # Open the file and write the variables with the correct format
+        with open(path, "w") as interp_file:
+            
+            # Write header
+            interp_file.write("3\n") # version. Must be 3
+            interp_file.write("3\n") # dimensionality. must be 3
+            interp_file.write("{}\n".format(N)) # number of points
+            interp_file.write("{}\n".format(len(variable_list)))
+            for name in outname_list:
+                interp_file.write("{}\n".format(name))
+            
+            # Here, write all the x,y,z positions
+            writeValues(interp_file, x)
+            writeValues(interp_file, y)
+            writeValues(interp_file, z)
+            
+            # Finally, write the variables of interest
+            for i, var in enumerate(vars): 
+                assert len(var) == self.__zone.num_elements, \
+                      "{} has an inconsistent number of elements".format(outname_list[i])
+                writeValues(interp_file, var)
+
+        print(" Done")
+        
+        
     def saveDataset(self, path):
         """
         Saves current state of tecplot dataset as .plt binary file.        
@@ -322,35 +462,9 @@ class TPDataset:
         Arguments:
         path -- path where .plt file should be saved.
         """
-        tecplot.data.save_tecplot_plt(filename=path, dataset=self.__dataset) 
         
+        print("Saving .plt file to {}...".format(path), end="", flush=True)
+        tecplot.data.save_tecplot_plt(filename=path, dataset=self.__dataset)
+        print(" Done")
         
-        
-
-"""
-This class holds numpy arrays that correspond to different RANS variables that we need.
-Numpy arrays are much easier/faster to operate on
-"""
-class RANSDataset:
-    def __init__(self, n_cells):
-        self.n_cells = n_cells # this is the number of elements(cells) in this dataset
-        
-        # These are 1D arrays of size N, containing the x,y,z position of the cell
-        self.x = np.empty(n_cells) 
-        self.y = np.empty(n_cells) 
-        self.z = np.empty(n_cells)        
-        
-        # this is a 1D array of size N, containing different quantities (one per cell)
-        self.T = np.empty(n_cells) # the scalar concentration        
-        self.tke = np.empty(n_cells) # RANS turbulent kinetic energy
-        self.epsilon = np.empty(n_cells) # RANS dissipation
-        self.nut = np.empty(n_cells) # eddy viscosity from RANS
-        self.d = np.empty(n_cells) # distance to nearest wall
-        
-        # These contain the gradients
-        self.gradU = np.empty((n_cells, 3, 3)) # this is a 3D array of size Nx3x3
-        self.gradT = np.empty((n_cells, 3)) # this is a 2D array of size Nx3
-        
-        # this is a 1D boolean array which indicates which indices have high enough gradient
-        self.shouldUse = np.empty(n_cells,dtype=bool)        
         

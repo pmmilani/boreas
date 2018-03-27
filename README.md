@@ -1,5 +1,6 @@
 ## RaFoFC v1.0.0 - Random Forest for Film Cooling Package
 Author: Pedro Milani (email: pmmilani@stanford.edu)
+
 Developed and tested in Python 3.6
 
 ### Installation

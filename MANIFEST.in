@@ -1,0 +1,5 @@
+#----------------------- MANIFEST.in file for RaFoFC package ---------------------------#
+
+include LICENSE
+include README.md
+recursive-include rafofc/data *.pckl

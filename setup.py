@@ -19,6 +19,5 @@ setup(
    author_email='pmmilani@stanford.edu',
    packages=['rafofc'],  # same as name
    install_requires=['numpy', 'sklearn', 'pytecplot', 'tqdm'], # dependencies
-   package_data={'rafofc': ['data/defaultML.pckl']}, # install data file
-   data_files=[('data', ['data/defaultML.pckl'])] # install data file
+   include_package_data=True      
 )

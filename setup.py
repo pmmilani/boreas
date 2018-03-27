@@ -13,7 +13,7 @@ setup(
    name='rafofc',
    version='1.0.0',
    description='RaFoFC v1.0.0 - Random Forests for Film Cooling Package',
-   license='MIT',
+   license='Apache',
    long_description=long_description,
    author='Pedro Milani',
    author_email='pmmilani@stanford.edu',

@@ -15,7 +15,8 @@ def printInfo():
     Makes sure everything is properly installed.
     
     We print a welcome message, the version of the package, and attempt to load
-    the pre-trained model to make sure the data file is there.
+    the pre-trained model to make sure the data file is there. Return 1 at the end
+    if no exceptions were raised.
     """
     
     print('Welcome to RaFoFC - Random Forest for Film Cooling package!')
@@ -29,6 +30,8 @@ def printInfo():
     rafo = MLModel()
     print('Default model was found and can be loaded properly.')
     rafo.printDescription()
+    
+    return 1 # return this if everything went ok
 
     
 def applyMLModel(tecplot_in_path, tecplot_out_path, ip_file_path, zone=None, U0=None,

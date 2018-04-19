@@ -15,9 +15,9 @@ setup(
    description='RaFoFC v1.0.0 - Random Forests for Film Cooling Package',
    license='Apache',
    long_description=long_description,
-   author='Pedro Milani',
+   author='Pedro M. Milani',
    author_email='pmmilani@stanford.edu',
    packages=['rafofc'],  # same as name
-   install_requires=['numpy', 'sklearn', 'pytecplot', 'tqdm'], # dependencies
+   install_requires=['numpy', 'scipy', 'pytecplot', 'sklearn', 'tqdm', 'pytest'], # dependencies
    include_package_data=True      
 )

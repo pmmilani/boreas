@@ -1,5 +1,5 @@
 ## RaFoFC v1.0.0 - Random Forest for Film Cooling Package
-Author: Pedro Milani (email: pmmilani@stanford.edu)
+Author: Pedro M. Milani (email: pmmilani@stanford.edu)
 
 Developed and tested in Python 3.6
 
@@ -38,15 +38,15 @@ from a k-epsilon simulation:
 
     applyMLModel("jicf_rans.plt", "jicf_rans_out.plt", "jicf_rans.ip")
 
-### Example and Testing
+### Examples and Testing
 The folder test contains a sample Tecplot file and a script that
-shows how the functions can be called. After installation, just run 
-the following from within the test folder:
+shows how the functions can be called (example_usage.py). After 
+installation, just run the following from within the test folder:
 
     python example_usage.py
     
 The test folder also contains a script with unit tests, meant to run
-with the pytest library. To run all the tests, just type the following
-from the root directory:
+with the pytest library (test_all.py). To run all the tests, just type 
+the following from the root directory:
 
     pytest

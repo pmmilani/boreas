@@ -39,7 +39,13 @@ from a k-epsilon simulation:
     applyMLModel("jicf_rans.plt", "jicf_rans_out.plt", "jicf_rans.ip")
     
 The folder test contains a sample Tecplot file and a script that
-tests functionality. After installation, just run the following from
-within the test folder:
+shows how the functions can be called. After installation, just run 
+the following from within the test folder:
 
-    python test.py
+    python example_usage.py
+    
+The test folder also contains a script with unit tests, meant to run
+with the pytest library. To run all the tests, just type the following
+from the root directory:
+
+    pytest

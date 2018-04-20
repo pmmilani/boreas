@@ -37,7 +37,8 @@ as follows, assuming there is a Tecplot file called "jicf_rans.plt"
 from a k-epsilon simulation:
 
     applyMLModel("jicf_rans.plt", "jicf_rans_out.plt", "jicf_rans.ip")
-    
+
+### Example and Testing
 The folder test contains a sample Tecplot file and a script that
 shows how the functions can be called. After installation, just run 
 the following from within the test folder:

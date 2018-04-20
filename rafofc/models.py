@@ -76,6 +76,9 @@ class MLModel:
              cell
         """       
         
+        assert isinstance(self.__model, RandomForestRegressor)
+        assert x.shape[1] == 19, "Wrong number of features!"
+        
         print("ML model loaded: {}".format(self.__description))
         print("Predicting turbulent diffusivity using ML model...", end="", flush=True)
         y = self.__model.predict(x)
@@ -89,6 +92,8 @@ class MLModel:
         This function is called to print out the string that is attached to the model. 
         This can be called to make sure that we are loading the model that we want.
         """
+        
+        assert isinstance(self.__description, str)
         
         print(self.__description)
         

@@ -367,7 +367,7 @@ class TPDataset:
         This method is called to extract all Tecplot quantities into appropriate numpy
         arrays, which will be used in all the subsequent processing (including ML). It
         initializes an instance of the RANSDataset class and stores all numpy arrays in
-        that class.
+        that class. It then returns x, which contains the ML features.
         
         Arguments:
         threshold -- magnitude cut-off for the temperature scalar gradient: only use 
@@ -385,8 +385,8 @@ class TPDataset:
                                operation)
         
         Returns:
-        rans_data -- instance of RANSDataset class containing numpy arrays extracted from
-                     tecplot dataset.
+        x -- a numpy array containing the features for prediction in the ML step. The 
+             shape should be (n_cells, n_features)
         """
         # First, calculate locations of the cell centers (X,Y,Z are usually on the node)
         tecplot.data.operate.execute_equation('{X_cell} = {X}',
@@ -463,23 +463,23 @@ class TPDataset:
         self.__zone.values("should_use")[:] = self.__rans_data.should_use.tolist()           
     
     
-    def createInterpFile(self, path, variable_list, outname_list):
+    def fetchVariablesToWrite(self, variable_list):
         """
-        Creates a Fluent interpolation file with the variables specified in variable_list
+        Returns positions of each cell and a list of variables to write in each cell.
         
         Arguments:
-        path -- path where .ip file should be saved.
         variable_list -- a list of strings containing names of variables present in the
-                         tecplot .plt file that should be present in the interpolation
-                         file.
-        outname_list -- a list of strings indicating the desired name for the variables
-                        in the interpolation file. Typically, we use user defined scalars
-                        to input diffusivity, so name should be uds-0, uds-1, etc.                        
+                         tecplot .plt file that should be present in the 
+                         interpolation/csv file.
+                         
+        Returns:
+        x,y,z -- lists containing x,y,z positions of each cell. len(x) is the number 
+                 of cells in the dataset
+        vars -- list of lists, containing different variables to be written in csv or
+                interpolation file. len(vars) is the number of variables to be written
+                and len(vars[0]) is the number of cells in the dataset.
         """
-        
-        print("Writing interpolation file to read alpha_t in Fluent...", 
-                end="", flush=True)
-        
+    
         # number of points that will be written
         N = self.__zone.num_elements
         
@@ -494,8 +494,49 @@ class TPDataset:
         # Now, get a list of variables (as numpy arrays) that will be written
         vars = []
         for var_name in variable_list:
+        
+            # Check names are valid, otherwise crash
+            assert isVariable(var_name, self.__dataset), \
+               "{} is not a valid variable to write in interp/csv file!".format(var_name)
+                      
             var = self.__zone.values(var_name)[:]
+            
+            # Check variable has correct length
+            assert len(var) == N, \
+                  ("Variable to write {} has incorrect number of".format(var_name)
+                   + " elements! Check node vs cell.")
+            
             vars.append(var)
+
+        return x,y,z,vars
+    
+        
+    def createInterpFile(self, path, variable_list, outname_list):
+        """
+        Creates a Fluent interpolation file with the variables specified in variable_list
+        
+        Arguments:
+        path -- path where .ip file should be saved.
+        variable_list -- a list of strings containing names of variables present in the
+                         tecplot .plt file that should be present in the interpolation
+                         file.
+        outname_list -- a list of strings indicating the desired name for the variables
+                        in the interpolation file. Typically, we use user defined scalars
+                        to input diffusivity, so name should be uds-0, uds-1, etc.                        
+        """
+        
+        print("Writing interpolation file to read results in Fluent...", 
+                end="", flush=True)
+        
+        # Check to make sure the number of names is the same as the number of variables,
+        # and is greater than one.
+        assert len(variable_list) == len(outname_list), \
+                 ("The number of names (outnames_to_write) must match the number"
+                  + "of variables (variables_to_write)!")                  
+        assert len(variable_list) >= 1, "Must write at least one variable!"
+        
+        # Call helper to get appropriate lists.
+        x,y,z,vars = self.fetchVariablesToWrite(variable_list)
         
         # Open the file and write the variables with the correct format
         with open(path, "w") as interp_file:
@@ -503,21 +544,63 @@ class TPDataset:
             # Write header
             interp_file.write("3\n") # version. Must be 3
             interp_file.write("3\n") # dimensionality. must be 3
-            interp_file.write("{}\n".format(N)) # number of points
-            interp_file.write("{}\n".format(len(variable_list)))
+            interp_file.write("{}\n".format(len(x))) # number of points
+            interp_file.write("{}\n".format(len(variable_list))) # number of variables
             for name in outname_list:
                 interp_file.write("{}\n".format(name))
             
-            # Here, write all the x,y,z positions
+            # Here, write all the x,y,z positions. writeValues is a helper that writes
+            # all entries of one variable.
             writeValues(interp_file, x)
             writeValues(interp_file, y)
             writeValues(interp_file, z)
             
             # Finally, write the variables of interest
-            for i, var in enumerate(vars): 
-                assert len(var) == self.__zone.num_elements, \
-                      "{} has an inconsistent number of elements".format(outname_list[i])
+            for var in vars: 
                 writeValues(interp_file, var)
+
+        print(" Done")
+        
+        
+    def createCsvFile(self, path, variable_list, outname_list):
+        """
+        Creates a csv file with the variables specified in variable_list
+        
+        Arguments:
+        path -- path where .csv file should be saved.
+        variable_list -- a list of strings containing names of variables present in the
+                         tecplot .plt file that should be present in the interpolation
+                         file.
+        outname_list -- a list of strings indicating the desired name for the variables
+                        in the interpolation file. Typically, we use user defined scalars
+                        to input diffusivity, so name should be uds-0, uds-1, etc.                        
+        """
+        
+        print("Writing csv file with results...", 
+                end="", flush=True)
+                
+        # Check to make sure the number of names is the same as the number of variables,
+        # and is greater than one.
+        assert len(variable_list) == len(outname_list), \
+                 ("The number of names (outnames_to_write) must match the number"
+                  + "of variables (variables_to_write)!")                  
+        assert len(variable_list) >= 1, "Must write at least one variable!"
+        
+        # Call helper to get appropriate lists.
+        x,y,z,vars = self.fetchVariablesToWrite(variable_list)
+        
+        with open(path, "w") as csv_file:
+        
+            # Write the variables
+            for i in range(len(x)):
+                # Here, write all the x,y,z positions
+                csv_file.write("{:.6e}, {:.6e}, {:.6e}".format(x[i], y[i], z[i]))
+                
+                # Now, write the variables
+                for var in vars:
+                    csv_file.write(", {:.6e}".format(var[i]))
+                    
+                csv_file.write("\n")                
 
         print(" Done")
         

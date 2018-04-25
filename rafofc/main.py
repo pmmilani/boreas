@@ -34,23 +34,26 @@ def printInfo():
     return 1 # return this if everything went ok
 
     
-def applyMLModel(tecplot_in_path, tecplot_out_path, ip_file_path, zone=None, U0=None,
-                 D=None, rho0=None, miu=None, deltaT=None, use_default_var_names=False, 
-                 calc_derivatives=True, use_default_derivative_names=True,
-                 threshold=1e-4, rans_data_load_path=None, rans_data_dump_path=None,
-                 variables_to_ip = ["alpha_t_ML"], outname_ip = ["uds-1"], 
-                 ml_model_path=None):
+def applyMLModel(tecplot_in_path, tecplot_out_path, *,  
+                 zone = None, 
+                 U0 = None, D = None, rho0 = None, miu = None, deltaT = None, 
+                 use_default_var_names = False,
+                 calc_derivatives = True, use_default_derivative_names = True,
+                 threshold = 1e-4, 
+                 rans_data_load_path = None, rans_data_dump_path = None,
+                 ip_file_path = None, csv_file_path = None,
+                 variables_to_write = ["alpha_t_ML"], outnames_to_write = ["uds-1"],                 
+                 ml_model_path = None):
     """
     Main function of package. Call this to take in a Tecplot file, process it, apply
-    the machine learning model, and save results to disk.
+    the machine learning model, and save results to disk. All optional arguments may
+    only be used with the keyword (that's what * means)
     
     Arguments:
     tecplot_in_path -- string containing the path of the input tecplot file. It must be
                        a binary .plt file, resulting from a k-epsilon simulation.
     tecplot_out_path -- string containing the path to which the final tecplot dataset
-                        will be saved.
-    ip_file_path -- string containing the path to which the interpolation file (which 
-                    is read by ANSYS Fluent) will be saved.
+                        will be saved.    
     zone -- optional argument. The zone where the flow field solution is saved in 
             Tecplot. By default, it is zone 0. This can be either a string (with the 
             zone name) or an integer with the zone index.
@@ -107,24 +110,31 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, ip_file_path, zone=None, U0=
                            then the function will save the processed data (in rans_data)
                            to disk, so it is much faster to perform the same computations
                            again later.
-    variables_to_ip -- optional argument. This is a list of strings containing names of
-                       variables in the Tecplot file that we want to write in the Fluent
-                       interpolation file. By default, it contains only "alpha_t_ML", 
-                       which is the machine learning turbulent diffusivity we just 
-                       calculated.
-    outname_ip -- optional argument. This is a list of strings that must have the same
-                  length as the previous argument. It contains the names that each of the
-                  variables written in the interpolation file will have. By default, this
-                  calls the turbulent diffusivity "uds-1" because in Fluent, an easy way
-                  to solve the Reynolds-averaged scalar transport equation with a custom
-                  diffusivity is to use a user-defined scalar as containing that custom
-                  diffusivity.
+    ip_file_path -- optional argument. String containing the path to which the
+                    interpolation file (which is read by ANSYS Fluent) will be saved. If
+                    this argument is None (by default), then no interpolation file is
+                    written.
+    csv_file_path -- optional argument. String containing the path to which the csv file
+                     (which can be read by StarCCM+) will be saved. If this is None 
+                     (default), then no csv file is written.    
+    variables_to_write -- optional argument. This is a list of strings containing names 
+                          of variables in the Tecplot file that we want to write in the 
+                          Fluent interpolation file/CSV file. By default, it contains
+                          only "alpha_t_ML", which is the machine learning turbulent
+                          diffusivity we just calculated.   
+    outnames_to_write -- optional argument. This is a list of strings that must have the 
+                        same length as the previous argument. It contains the names that
+                        each of the variables written in the interpolation file will 
+                        have. By default, this calls the turbulent diffusivity "uds-1" 
+                        because in Fluent, an easy way to solve the Reynolds-averaged 
+                        scalar transport equation with a custom diffusivity is to use a 
+                        user-defined scalar as containing that custom diffusivity.
     ml_model_path -- optional argument. This is the path where the function will look for
                      a pre-trained machine learning model. The file must be a pickled
                      instance of a random forest regressor class, saved to disk using 
                      joblib. By default, the default machine learning model (which is
                      already pre-trained with LES/DNS of 3 cases) is loaded, which comes
-                     together with the package.  
+                     together with the package.    
     """
     
     
@@ -157,9 +167,12 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, ip_file_path, zone=None, U0=
     rf = MLModel(ml_model_path)
     alpha_t_ML = rf.predict(x)
     
-    # Add alpha_t_ML as a variable in tecplot, create Fluent interp file, and save new
+    # Add alpha_t_ML as a variable in tecplot, create interp/csv files, and save new
     # tecplot file with all new variables.
-    dataset.addMLDiffusivity(alpha_t_ML) 
-    dataset.createInterpFile(ip_file_path, variables_to_ip, outname_ip) 
+    dataset.addMLDiffusivity(alpha_t_ML)    
+    if ip_file_path is not None:
+        dataset.createInterpFile(ip_file_path, variables_to_write, outnames_to_write)    
+    if csv_file_path is not None:
+        dataset.createCsvFile(csv_file_path, variables_to_write, outnames_to_write)        
     dataset.saveDataset(tecplot_out_path)   
 

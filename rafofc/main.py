@@ -35,10 +35,11 @@ def printInfo():
 
     
 def applyMLModel(tecplot_in_path, tecplot_out_path, ip_file_path, zone=None, U0=None,
-                 D=None, rho0=None, miu=None, deltaT=None, use_default_names=False, 
-                 calc_derivatives=True, threshold=1e-4, rans_data_load_path=None,
-                 rans_data_dump_path=None, variables_to_ip = ["alpha_t_ML"], 
-                 outname_ip = ["uds-1"], ml_model_path=None):
+                 D=None, rho0=None, miu=None, deltaT=None, use_default_var_names=False, 
+                 calc_derivatives=True, use_default_derivative_names=True,
+                 threshold=1e-4, rans_data_load_path=None, rans_data_dump_path=None,
+                 variables_to_ip = ["alpha_t_ML"], outname_ip = ["uds-1"], 
+                 ml_model_path=None):
     """
     Main function of package. Call this to take in a Tecplot file, process it, apply
     the machine learning model, and save results to disk.
@@ -69,11 +70,11 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, ip_file_path, zone=None, U0=
     deltaT -- optional argument. Temperature scale (Tmax - Tmin) that will be used to 
               non-dimensionalize the dataset. If it is not provided (default behavior),
               the user will be prompted to enter an appropriate number.    
-    use_default_names -- optional argument. Boolean flag (True/False) that determines
-                         whether default Fluent names will be used to fetch variables
-                         in the Tecplot dataset. If the flag is False (default behavior),
-                         the user will be prompted to enter names for each variable that
-                         is needed.
+    use_default_var_names -- optional argument. Boolean flag (True/False) that determines
+                             whether default Fluent names will be used to fetch variables
+                             in the Tecplot dataset. If the flag is False (default 
+                             behavior), the user will be prompted to enter names for each
+                             variable that is needed.
     calc_derivatives -- optional argument. Boolean flag (True/False) that determines 
                         whether derivatives need to be calculated in the Tecplot file.
                         Note we need derivatives of U, V, W, and Temperature, with names
@@ -82,6 +83,15 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, ip_file_path, zone=None, U0=
                         process. By default (True), derivatives are calculated and a new
                         file with derivatives called "derivatives_{}" will be saved to 
                         disk.
+    use_default_derivative_names -- optional argument. Boolean flag (True/False) that 
+                                    determine if the user will pick the names for the
+                                    derivative quantities in the Tecplot file or whether
+                                    default names are used. This flag is only used if the
+                                    previous flag is False (i.e., if derivatives are 
+                                    already pre-calculated, then setting this flag to 
+                                    False allows the user to input the names of each
+                                    derivative in the input .plt file). It defaults to
+                                    True.
     threshold -- optional argument. This variable determines the threshold for 
                  (non-dimensional) temperature gradient below which we throw away a 
                  point. Default value is 1e-4. For temperature gradient less than that,
@@ -121,7 +131,8 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, ip_file_path, zone=None, U0=
     # Initialize dataset and get scales for non-dimensionalization. The default behavior
     # is to ask the user for the names and the scales. Passing keyword arguments to this
     # function can be done to go around this behavior
-    dataset = TPDataset(tecplot_in_path, zone=zone, use_default_names=use_default_names)
+    dataset = TPDataset(tecplot_in_path, zone=zone, 
+                        use_default_names=use_default_var_names)
     dataset.normalize(U0=U0, D=D, rho0=rho0, miu=miu, deltaT=deltaT)
     
     # If this flag is True (default) calculate the derivatives and save the result to
@@ -129,6 +140,9 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, ip_file_path, zone=None, U0=
     if calc_derivatives:
         dataset.calculateDerivatives()
         dataset.saveDataset("derivatives_" + tecplot_in_path)
+    else:
+        print("Derivatives already calculated!")
+        dataset.addDerivativeNames(use_default_derivative_names)
     
     # This line processes the dataset, create rans_data (a class holding all variables
     # as numpy arrays), and extracts features for the ML step (the latter can take a

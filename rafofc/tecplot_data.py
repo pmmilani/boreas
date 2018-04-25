@@ -73,8 +73,7 @@ def getVarNameFromUser(message, dataset, default_name):
             name = None                    
             
     return name
-
-
+    
     
 def isVariable(name, dataset):
     """
@@ -98,6 +97,7 @@ def isVariable(name, dataset):
     
     except: 
         return False
+        
     
 def writeValues(file, variable):
     """
@@ -115,6 +115,7 @@ def writeValues(file, variable):
         file.write("{:.6e}\n".format(x))
         
     file.write(")\n") # must end with parenthesis and new line
+    
 
 class TPDataset:
     """
@@ -177,14 +178,14 @@ class TPDataset:
         
         use_default_names -- optional, whether to use default names (from Fluent) to 
                              fetch variables in the .plt file. Must be false unless all 
-                             variables of interest in tecplot have the default name.
+                             variables of interest in Tecplot have the default name.
         """
         
         # this dictionary maps from key to the actual variable name in Tecplot file
         self.__var_names = {} 
         
         # These are the keys for the 9 relevant variables we need
-        variables = ["U", "V", "W", "Density", "Temperature", "TKE", "epsilon",
+        variables = ["U", "V", "W", "Density", "T", "TKE", "epsilon",
                      "turbulent viscosity", "distance to wall", "laminar viscosity"]
                      
         # These are the default names we enter if user refuses to provide one (from ANSYS
@@ -193,16 +194,30 @@ class TPDataset:
                          "Turbulent Kinetic Energy", "Turbulent Dissipation Rate",
                          "Turbulent Viscosity", "Wall Distribution", "Laminar Viscosity"]
                          
-        # Ask user for variable names and stores them in the dictionary
-        if use_default_names:
-            for i, key in enumerate(variables):
-                self.__var_names[key] = default_names[i]
+        # Loop through all the variables that we must add
+        for i, key in enumerate(variables):
         
-        else: # default usage: ask for names
-            for i, key in enumerate(variables):
+            # If I want to use default names for the variables
+            if use_default_names:                
+                
+                # Check default names are valid, otherwise crash
+                assert isVariable(default_names[i], self.__dataset), \
+                      "Default name {} is not a valid variable!".format(default_names[i])
+                
+                # Add default name to dictionary
+                self.__var_names[key] = default_names[i]
+            
+            # Here, just get a name from the user
+            else:
                 self.__var_names[key] = getVarNameFromUser("Enter name for "
                                                            + "{} variable: ".format(key), 
-                                                            self.__dataset, default_names[i])
+                                                            self.__dataset, 
+                                                            default_names[i])
+                                                            
+        # Finally, assert X, Y, Z are valid variables:
+        assert isVariable("X", self.__dataset), 'Variable "X" not found in the dataset!'
+        assert isVariable("Y", self.__dataset), 'Variable "Y" not found in the dataset!'
+        assert isVariable("Z", self.__dataset), 'Variable "Z" not found in the dataset!'
             
     
     def normalize(self, U0=None, D=None, rho0=None, miu=None, deltaT=None):
@@ -250,6 +265,7 @@ class TPDataset:
             print("\t Extrapolation to different Reynolds number is an "
                   + "open research topic.")                             
                                            
+    
     def calculateDerivatives(self):
         """
         Calculates x,y,z derivatives of U, V, W, and T.
@@ -260,7 +276,7 @@ class TPDataset:
         
         print("Taking x, y, z derivatives. This can take a while...")
         
-        variables = ["U", "V", "W", "Temperature"] # variables that we differentiate        
+        variables = ["U", "V", "W", "T"] # variables that we differentiate        
         
         tic=timeit.default_timer() # timing
         
@@ -290,9 +306,59 @@ class TPDataset:
         
         # timing
         toc=timeit.default_timer()
-        print("Taking derivatives took {:.1f} minutes".format((toc - tic)/60))
+        print("Taking derivatives took {:.1f} minutes".format((toc - tic)/60.0))
+        
+        # calls function below to input correct names for the derivatives
+        self.addDerivativeNames(use_default_derivative_names=True)
 
     
+    def addDerivativeNames(self, use_default_derivative_names):
+        """
+        Adds the names of derivative variables to the name dictionary.
+        
+        This function is called to add the correct names for each of the Tecplot  
+        variables holding derivatives of interest. It will ask for user input. The
+        user can enter empty strings to use a default variable name. The default
+        names are "ddx_U", "ddy_U", ..., "ddz_T"
+        
+        use_default_derivative_names -- optional, whether to use default names to 
+                             fetch variables in the .plt file. Should only be true if ALL 
+                             derivatives of interest in tecplot have the default name.
+        """    
+        
+        # Variables whose names we want to add (i.e., all derivatives)
+        variables = ["ddx_U", "ddy_U", "ddz_U", 
+                     "ddx_V", "ddy_V", "ddz_V",
+                     "ddx_W", "ddy_W", "ddz_W", 
+                     "ddx_T", "ddy_T", "ddz_T"]
+        
+        # Default names for variables above        
+        default_names = ["ddx_U", "ddy_U", "ddz_U", 
+                         "ddx_V", "ddy_V", "ddz_V",
+                         "ddx_W", "ddy_W", "ddz_W", 
+                         "ddx_T", "ddy_T", "ddz_T"]    
+        
+        # Add derivative names to the dictionary of names
+        for i, var in enumerate(variables):
+            
+            if use_default_derivative_names:
+            
+                # Check default names are valid, otherwise crash
+                assert isVariable(default_names[i], self.__dataset), \
+                      "Default name {} is not a valid variable!".format(default_names[i])
+                                
+                # Add default names to dictionary
+                self.__var_names[var] = default_names[i]                
+            
+            else: 
+                
+                # Here, we ask the user for each derivative's name
+                self.__var_names[var] = getVarNameFromUser("Enter name for " 
+                                                           + "{} variable: ".format(var),
+                                                           self.__dataset,
+                                                           default_names[i]) 
+                                                                  
+                                                                  
     def extractMLFeatures(self, threshold=1e-4, rans_data_load_path=None, 
                           rans_data_dump_path=None):
         """
@@ -361,6 +427,7 @@ class TPDataset:
         
         # return the extracted arrays
         return x
+        
         
     def addMLDiffusivity(self, alpha_t):
         """

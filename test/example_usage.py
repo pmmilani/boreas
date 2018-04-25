@@ -19,23 +19,21 @@ def main():
     fluent_interp_output_name = "cube.ip" # name of output Fluent interpolation file
     
     # Bare-bones, default invocation. Supply only the 3 required input arguments
-    applyMLModel(tecplot_file_name, tecplot_file_output_name, fluent_interp_output_name)    
-    
+    applyMLModel(tecplot_file_name, tecplot_file_output_name, fluent_interp_output_name)
+        
     
     # With some more useful flags:
     """
     applyMLModel(tecplot_file_name, tecplot_file_output_name, fluent_interp_output_name, 
-                 use_default_names=True, U0=1, D=1, rho0=1, miu=0.0002, deltaT=1,
+                 use_default_var_names=True, U0=1, D=1, rho0=1, miu=0.0002, deltaT=1,
                  rans_data_load_path="data_rans_cube.pckl", 
                  rans_data_dump_path="data_rans_cube.pckl")
     """
     
-
-    
     # If the derivatives have already been calculated:
     """
     applyMLModel(tecplot_file_name, tecplot_file_output_name, fluent_interp_output_name, 
-                 use_default_names=True, U0=1, D=1, rho0=1, miu=0.0002, deltaT=1,
+                 use_default_var_names=True, U0=1, D=1, rho0=1, miu=0.0002, deltaT=1,
                  rans_data_load_path="data_rans_cube.pckl", 
                  rans_data_dump_path="data_rans_cube.pckl",
                  calc_derivatives=False)

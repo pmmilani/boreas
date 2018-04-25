@@ -10,7 +10,6 @@ from rafofc.main import printInfo, applyMLModel
 from rafofc.models import MLModel
 
 
-
 def test_print_info():
     """
     This function calls the printInfo helper from main to make sure that it does not
@@ -18,7 +17,6 @@ def test_print_info():
     """
     
     assert printInfo() == 1
-
     
     
 def test_loading_default_ml_model():

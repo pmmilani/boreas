@@ -129,24 +129,23 @@ class RANSDataset:
         self.z = np.asarray(zone.values('Z_cell')[:])
         
         # Scalar concentration
-        self.T = np.asarray(zone.values(var_names['Temperature'])[:])
+        self.T = np.asarray(zone.values(var_names['T'])[:])
         
         # Velocity Gradients: dudx, dudy, dudz, dvdx, dydy, dydz, dwdx, dwdy, dwdz
-        # non-dimensionalize at the same time
-        self.gradU[:, 0, 0] = np.asarray(zone.values("ddx_U")[:])
-        self.gradU[:, 1, 0] = np.asarray(zone.values("ddy_U")[:])
-        self.gradU[:, 2, 0] = np.asarray(zone.values("ddz_U")[:])
-        self.gradU[:, 0, 1] = np.asarray(zone.values("ddx_V")[:])
-        self.gradU[:, 1, 1] = np.asarray(zone.values("ddy_V")[:])
-        self.gradU[:, 2, 1] = np.asarray(zone.values("ddz_V")[:])
-        self.gradU[:, 0, 2] = np.asarray(zone.values("ddx_W")[:])
-        self.gradU[:, 1, 2] = np.asarray(zone.values("ddy_W")[:])
-        self.gradU[:, 2, 2] = np.asarray(zone.values("ddz_W")[:])
+        self.gradU[:, 0, 0] = np.asarray(zone.values(var_names["ddx_U"])[:])
+        self.gradU[:, 1, 0] = np.asarray(zone.values(var_names["ddy_U"])[:])
+        self.gradU[:, 2, 0] = np.asarray(zone.values(var_names["ddz_U"])[:])
+        self.gradU[:, 0, 1] = np.asarray(zone.values(var_names["ddx_V"])[:])
+        self.gradU[:, 1, 1] = np.asarray(zone.values(var_names["ddy_V"])[:])
+        self.gradU[:, 2, 1] = np.asarray(zone.values(var_names["ddz_V"])[:])
+        self.gradU[:, 0, 2] = np.asarray(zone.values(var_names["ddx_W"])[:])
+        self.gradU[:, 1, 2] = np.asarray(zone.values(var_names["ddy_W"])[:])
+        self.gradU[:, 2, 2] = np.asarray(zone.values(var_names["ddz_W"])[:])
         
         # Temperature Gradients: dTdx, dTdy, dTdz 
-        self.gradT[:, 0] = np.asarray(zone.values("ddx_Temperature")[:])
-        self.gradT[:, 1] = np.asarray(zone.values("ddy_Temperature")[:])
-        self.gradT[:, 2] = np.asarray(zone.values("ddz_Temperature")[:])
+        self.gradT[:, 0] = np.asarray(zone.values(var_names["ddx_T"])[:])
+        self.gradT[:, 1] = np.asarray(zone.values(var_names["ddy_T"])[:])
+        self.gradT[:, 2] = np.asarray(zone.values(var_names["ddz_T"])[:])
         
         # Other scalars: density, tke, epsilon, nu_t, nu, distance to wall
         self.tke = np.asarray(zone.values(var_names["TKE"])[:])
@@ -156,8 +155,11 @@ class RANSDataset:
         self.nut = np.asarray(zone.values(var_names["turbulent viscosity"])[:])
         self.d = np.asarray(zone.values(var_names["distance to wall"])[:])
         
-        # non-dimensionalization done in different method
-        self.nonDimensionalize() 
+        # Non-dimensionalization done in different method
+        self.nonDimensionalize()
+        
+        # Check that all variables have the correct size and range
+        self.sanityCheck()
     
    
     def nonDimensionalize(self):
@@ -176,9 +178,41 @@ class RANSDataset:
         self.rho /= self.rho0
         self.nut /= (self.rho0*self.U0*self.D)
         self.nu /= (self.rho0*self.U0*self.D)
-        self.d /= self.D    
+        self.d /= self.D
 
-
+        
+    def sanityCheck(self):
+        """
+        This function contains assertions to check the current state of the dataset
+        """
+        
+        assert self.x.size == self.n_cells, "Wrong number of entries for x"
+        assert self.y.size == self.n_cells, "Wrong number of entries for y"
+        assert self.z.size == self.n_cells, "Wrong number of entries for z"
+        
+        assert self.T.size == self.n_cells, \
+               "Wrong number of entries for T. Check that it is cell centered."        
+        assert self.tke.size == self.n_cells, \
+               "Wrong number of entries for TKE. Check that it is cell centered."               
+        assert self.epsilon.size == self.n_cells, \
+               "Wrong number of entries for epsilon. Check that it is cell centered."
+        assert self.rho.size == self.n_cells, \
+               "Wrong number of entries for rho. Check that it is cell centered."
+        assert self.nut.size == self.n_cells, \
+               "Wrong number of entries for nu_t. Check that it is cell centered."
+        assert self.nu.size == self.n_cells, \
+               "Wrong number of entries for nu. Check that it is cell centered."
+        assert self.d.size == self.n_cells, \
+               "Wrong number of entries for d. Check that it is cell centered."
+        
+        assert (self.tke >= 0).all(), "Found negative entries for tke!"
+        assert (self.epsilon >= 0).all(), "Found negative entries for epsilon!"
+        assert (self.rho >= 0).all(), "Found negative entries for rho!"
+        assert (self.nut >= 0).all(), "Found negative entries for nut!"
+        assert (self.nu >= 0).all(), "Found negative entries for nu!"
+        assert (self.d >= 0).all(), "Found negative entries for d!"
+        
+        
     def determineShouldUse(self, threshold):
         """
         This function is called to determine in which points we should make a prediction.

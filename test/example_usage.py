@@ -38,8 +38,8 @@ def main():
     applyMLModel(tecplot_file_name, tecplot_file_output_name, 
                  U0=0.67, D=0.006, rho0=998, miu=0.001003, deltaT=1,
                  use_default_var_names=True,
-                 rans_data_load_path="data_rans_cube.pckl", 
-                 rans_data_dump_path="data_rans_cube.pckl",
+                 processed_load_path="processed_cube.pckl", 
+                 processed_dump_path="processed_cube.pckl",
                  ip_file_path=fluent_interp_output_name,
                  csv_file_path=csv_output_name)
     """
@@ -50,8 +50,8 @@ def main():
     applyMLModel(tecplot_file_name, tecplot_file_output_name, 
                  U0=0.67, D=0.006, rho0=998, miu=0.001003, deltaT=1,
                  use_default_var_names=True, 
-                 rans_data_load_path="data_rans_cube.pckl", 
-                 rans_data_dump_path="data_rans_cube.pckl",
+                 processed_load_path="processed_cube.pckl", 
+                 processed_dump_path="processed_cube.pckl",
                  calc_derivatives=False,
                  ip_file_path=fluent_interp_output_name,
                  csv_file_path=csv_output_name)

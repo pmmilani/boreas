@@ -8,7 +8,7 @@ implements all the functionality directly available to the user.
 import numpy as np
 from pkg_resources import get_distribution
 from rafofc.models import MLModel
-from rafofc.tecplot_data import TPDataset
+from rafofc.case import TestCase
 
 def printInfo():
     """
@@ -40,7 +40,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                  use_default_var_names = False, use_default_derivative_names = True,
                  calc_derivatives = True, write_derivatives = True, 
                  threshold = 1e-4, 
-                 rans_data_load_path = None, rans_data_dump_path = None,
+                 processed_load_path = None, processed_dump_path = None,
                  ip_file_path = None, csv_file_path = None,
                  variables_to_write = ["alpha_t_ML"], outnames_to_write = ["uds-1"],                 
                  ml_model_path = None):
@@ -106,14 +106,14 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                  point. Default value is 1e-4. For temperature gradient less than that,
                  we use the Reynolds analagoy (with Pr_t=0.85). For gradients larger than
                  that, we use the ML model.                 
-    rans_data_load_path -- optional argument. If this is supplied, then the function will
+    processed_load_path -- optional argument. If this is supplied, then the function will
                            try to load the rans_data class from disk instead of 
                            processing the tecplot file all over again. Since calculating
                            the features can take a while for large datasets, this can be 
                            useful to speed up repetitions.                           
-    rans_data_dump_path -- optional argument. If this is provided and we processed the
+    processed_dump_path -- optional argument. If this is provided and we processed the
                            tecplot data from scratch (i.e. we calculated the features), 
-                           then the function will save the processed data (in rans_data)
+                           then the function will save the processed data (in proc_rans)
                            to disk, so it is much faster to perform the same computations
                            again later.
     ip_file_path -- optional argument. String containing the path to which the
@@ -147,7 +147,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     # Initialize dataset and get scales for non-dimensionalization. The default behavior
     # is to ask the user for the names and the scales. Passing keyword arguments to this
     # function can be done to go around this behavior
-    dataset = TPDataset(tecplot_in_path, zone=zone, 
+    dataset = TestCase(tecplot_in_path, zone=zone, 
                         use_default_names=use_default_var_names)
     dataset.normalize(U0=U0, D=D, rho0=rho0, miu=miu, deltaT=deltaT)
     
@@ -163,11 +163,11 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     
     # This line processes the dataset, create rans_data (a class holding all variables
     # as numpy arrays), and extracts features for the ML step (the latter can take a
-    # time). rans_data_load_path and rans_data_dump_path can be not None to make the 
+    # time). processed_load_path and processed_dump_path can be not None to make the 
     # method load/save the processed quantities from disk.
     x = dataset.extractMLFeatures(threshold=threshold, 
-                                  rans_data_load_path=rans_data_load_path,
-                                  rans_data_dump_path=rans_data_dump_path)
+                                  processed_load_path=processed_load_path,
+                                  processed_dump_path=processed_dump_path)
     
     # Initialize the ML model and use it for prediction. If ml_model_path is None, jus
     # load the default model from disk. 

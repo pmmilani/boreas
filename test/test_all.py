@@ -8,7 +8,7 @@ import os
 import numpy as np
 from rafofc.main import printInfo, applyMLModel
 from rafofc.models import MLModel
-from rafofc.rans_dataset import RANSDataset
+from rafofc.processed_data import ProcessedRANS
 from sklearn.externals import joblib
 
 
@@ -73,7 +73,7 @@ def test_full_cycle():
     tecplot_file_output_name = os.path.join(dirname, "FPG_out.plt")    
     csv_output_name = os.path.join(dirname, "FPG_out.csv")        
     processed_rans_name = os.path.join(dirname, "data_rans_fpg_test.pckl")    
-    gold_file_name = os.path.join(dirname, "gold.pckl")
+    gold_file_name = os.path.join(dirname, "gold.pckl") # file containing correct results
     
     # Threshold for comparing two real numbers 
     threshold = 1e-6
@@ -85,8 +85,8 @@ def test_full_cycle():
                  use_default_var_names=True,
                  write_derivatives = False,
                  csv_file_path=csv_output_name,
-                 rans_data_dump_path=processed_rans_name,
-                 variables_to_write = ["ddx_U", "ddy_U", "ddz_U", "ddx_V", "ddy_V", 
+                 processed_dump_path=processed_rans_name,
+                 variables_to_write = ["ddx_U", "ddy_U", "ddz_U", "ddx_V", "ddy_V",
                                        "ddz_V", "ddx_W", "ddy_W", "ddz_W", "ddx_T", 
                                        "ddy_T", "ddz_T", "should_use", "alpha_t_ML"], 
                  outnames_to_write = ["ddx_U", "ddy_U", "ddz_U", "ddx_V", "ddy_V", 
@@ -122,7 +122,7 @@ def loadNewlyWrittenData(csv_output_name, processed_rans_name):
     
     Returns:
     csv_array -- numpy array, with all the data read from the current run on the function
-    processed_rans -- instance of RANSDataset class, with the processing results.
+    processed_rans -- instance of ProcessedRANS class, with the post-processing results.
     """
     
     #--------Load processed rans

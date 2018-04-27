@@ -5,7 +5,7 @@ load/edit/save a tecplot plot file
 """
 
 # ------------ Import statements
-from sklearn.externals import joblib # joblib is used to load trained models from disk
+from sklearn.externals import joblib # joblib is used to load files from disk
 import timeit # for timing the derivative
 import tecplot
 import os
@@ -590,10 +590,16 @@ class TPDataset:
         x,y,z,vars = self.fetchVariablesToWrite(variable_list)
         
         with open(path, "w") as csv_file:
-        
+            
+            # Write header (i.e., all variable names) 
+            csv_file.write("X, Y, Z")
+            for var_name in variable_list:
+                csv_file.write(", {}".format(var_name))
+            csv_file.write("\n")
+            
             # Write the variables
             for i in range(len(x)):
-                # Here, write all the x,y,z positions
+                # Here, write the x,y,z positions
                 csv_file.write("{:.6e}, {:.6e}, {:.6e}".format(x[i], y[i], z[i]))
                 
                 # Now, write the variables

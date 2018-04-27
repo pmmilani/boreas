@@ -37,8 +37,8 @@ def printInfo():
 def applyMLModel(tecplot_in_path, tecplot_out_path, *,  
                  zone = None, 
                  U0 = None, D = None, rho0 = None, miu = None, deltaT = None, 
-                 use_default_var_names = False,
-                 calc_derivatives = True, use_default_derivative_names = True,
+                 use_default_var_names = False, use_default_derivative_names = True,
+                 calc_derivatives = True, write_derivatives = True, 
                  threshold = 1e-4, 
                  rans_data_load_path = None, rans_data_dump_path = None,
                  ip_file_path = None, csv_file_path = None,
@@ -78,6 +78,15 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                              in the Tecplot dataset. If the flag is False (default 
                              behavior), the user will be prompted to enter names for each
                              variable that is needed.
+    use_default_derivative_names -- optional argument. Boolean flag (True/False) that 
+                                    determine if the user will pick the names for the
+                                    derivative quantities in the Tecplot file or whether
+                                    default names are used. This flag is only used if the
+                                    next flag is False (i.e., if derivatives are 
+                                    already pre-calculated, then setting this flag to 
+                                    False allows the user to input the names of each
+                                    derivative in the input .plt file). It defaults to
+                                    True.
     calc_derivatives -- optional argument. Boolean flag (True/False) that determines 
                         whether derivatives need to be calculated in the Tecplot file.
                         Note we need derivatives of U, V, W, and Temperature, with names
@@ -86,15 +95,12 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                         process. By default (True), derivatives are calculated and a new
                         file with derivatives called "derivatives_{}" will be saved to 
                         disk.
-    use_default_derivative_names -- optional argument. Boolean flag (True/False) that 
-                                    determine if the user will pick the names for the
-                                    derivative quantities in the Tecplot file or whether
-                                    default names are used. This flag is only used if the
-                                    previous flag is False (i.e., if derivatives are 
-                                    already pre-calculated, then setting this flag to 
-                                    False allows the user to input the names of each
-                                    derivative in the input .plt file). It defaults to
-                                    True.
+    write_derivatives -- optional argument. Boolean flag (True/False) that determines 
+                         whether to write a binary Tecplot file to disk with the newly
+                         calculated derivatives. The file will have the same name as the
+                         input, except followed by "_derivatives". This is useful because
+                         calculating derivatives takes a long time, so you might want to
+                         save results to disk as soon as they are calculated.    
     threshold -- optional argument. This variable determines the threshold for 
                  (non-dimensional) temperature gradient below which we throw away a 
                  point. Default value is 1e-4. For temperature gradient less than that,
@@ -149,7 +155,8 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     # disk (since it takes a while to do that...)
     if calc_derivatives:
         dataset.calculateDerivatives()
-        dataset.saveDataset("derivatives_" + tecplot_in_path)
+        if write_derivatives: # write new Tecplot file to disk
+            dataset.saveDataset(tecplot_in_path[0:-4] + "_derivatives.plt")
     else:
         print("Derivatives already calculated!")
         dataset.addDerivativeNames(use_default_derivative_names)

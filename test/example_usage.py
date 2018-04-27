@@ -28,11 +28,9 @@ def main():
     
     # Bare-bones invocation that actually writes .ip and .csv files with results. Use
     # this to perform full cycle.
-    
     applyMLModel(tecplot_file_name, tecplot_file_output_name,
                  ip_file_path=fluent_interp_output_name,
                  csv_file_path=csv_output_name)
-            
     
     
     # With some more useful flags:

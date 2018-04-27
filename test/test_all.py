@@ -8,6 +8,8 @@ import os
 import numpy as np
 from rafofc.main import printInfo, applyMLModel
 from rafofc.models import MLModel
+from rafofc.rans_dataset import RANSDataset
+from sklearn.externals import joblib
 
 
 def test_print_info():
@@ -55,3 +57,219 @@ def test_loading_custom_ml_model():
     x = -100.0 + 100*np.random.rand(n_test, N_FEATURES)
     y = rafo_custom.predict(x)
     assert y.shape == (n_test, )
+    
+    
+def test_full_cycle():
+    """
+    This function runs the full rafofc procedure on the sample coarse RANS simulation
+    and makes sure the results are the same that we got previously.
+    """
+    
+    # Make the path relative to the location of the present script
+    dirname = os.path.dirname(__file__)
+    
+    # Relevant names of files    
+    tecplot_file_name = os.path.join(dirname, "FPG_coarse.plt")    
+    tecplot_file_output_name = os.path.join(dirname, "FPG_out.plt")    
+    csv_output_name = os.path.join(dirname, "FPG_out.csv")        
+    processed_rans_name = os.path.join(dirname, "data_rans_fpg_test.pckl")    
+    gold_file_name = os.path.join(dirname, "gold.pckl")
+    
+    # Threshold for comparing two real numbers 
+    threshold = 1e-6
+    
+    # Calls the main function on the sample .plt file.
+    # Sample file is a coarse FPG jet in crossflow.    
+    applyMLModel(tecplot_file_name, tecplot_file_output_name,
+                 U0=0.67, D=0.006, rho0=998, miu=0.001003, deltaT=1, 
+                 use_default_var_names=True,
+                 write_derivatives = False,
+                 csv_file_path=csv_output_name,
+                 rans_data_dump_path=processed_rans_name,
+                 variables_to_write = ["ddx_U", "ddy_U", "ddz_U", "ddx_V", "ddy_V", 
+                                       "ddz_V", "ddx_W", "ddy_W", "ddz_W", "ddx_T", 
+                                       "ddy_T", "ddz_T", "should_use", "alpha_t_ML"], 
+                 outnames_to_write = ["ddx_U", "ddy_U", "ddz_U", "ddx_V", "ddy_V", 
+                                      "ddz_V", "ddx_W", "ddy_W", "ddz_W", "ddx_T", 
+                                      "ddy_T", "ddz_T", "should_use", "alpha_t_ML"])
+    
+    # Load from disk the pre-saved gold data
+    csv_array_gold, processed_rans_gold = joblib.load(gold_file_name)
+    
+    # Load from disk the files we just dumped
+    csv_array, processed_rans = loadNewlyWrittenData(csv_output_name, 
+                                                     processed_rans_name)
+                                                     
+    # Remove files I wrote to disk
+    os.remove(tecplot_file_output_name)
+    os.remove(csv_output_name)
+    os.remove(processed_rans_name)    
+    
+    # Perform all assertions to guarantee we got the same results as before
+    comparePositions(csv_array[:, 0:3], csv_array_gold[:, 0:3], threshold)
+    compareDerivatives(csv_array[:, 3:15], csv_array_gold[:, 3:15], threshold)
+    compareProcessedRANS(processed_rans, processed_rans_gold, threshold)
+    compareMLOutput(csv_array[:, 15:17], csv_array_gold[:, 15:17], threshold)       
+                                                     
+                                                     
+def loadNewlyWrittenData(csv_output_name, processed_rans_name):
+    """
+    This helper loads data saved to disk as arrays so we can look at it
+    
+    Arguments:
+    csv_output_name -- string, name of the .csv file with the Tecplot variables 
+    processed_rans_name -- string, name of the .pckl file
+    
+    Returns:
+    csv_array -- numpy array, with all the data read from the current run on the function
+    processed_rans -- instance of RANSDataset class, with the processing results.
+    """
+    
+    #--------Load processed rans
+    processed_rans = joblib.load(processed_rans_name)
+    
+    #--------Load csv_array
+    
+    # First, count number of cells and variables
+    with open(csv_output_name, "r") as csv_file:
+        line = csv_file.readline()
+        entries = line.split(", ")
+        num_vars = len(entries) # number of variables
+        N = sum(1 for line in csv_file) # number of cells        
+    
+    # Initialize numpy array
+    csv_array = np.zeros((N, num_vars))
+    
+    # Open file again, and now record files
+    with open(csv_output_name, "r") as csv_file:
+        
+        # Deal with header first
+        line = csv_file.readline()
+        entries = line.split(", ")
+        variables_present = ["X", "Y", "Z", "ddx_U", "ddy_U", "ddz_U", "ddx_V", "ddy_V", 
+                             "ddz_V", "ddx_W", "ddy_W", "ddz_W", "ddx_T", "ddy_T", 
+                             "ddz_T", "should_use", "alpha_t_ML"]
+        assert len(entries) == len(variables_present)
+        for i in range(len(entries)):
+            assert entries[i].strip() == variables_present[i].strip()
+        
+        # Now, read variable values
+        for i, line in enumerate(csv_file):
+            entries = line.split(", ")
+            for j in range(num_vars):
+                csv_array[i,j] = float(entries[j].strip())
+    
+    # Return both
+    return csv_array, processed_rans
+    
+
+def comparePositions(X, X_gold, threshold):
+    """
+    This function compares positions of the cells to make sure they match
+    
+    Arguments:
+    X -- numpy array containing positions of cells
+    X_gold -- numpy array containing correct positions of cells
+    threshold -- threshold for comparing real numbers
+    """
+    compareNumpyArrays(X, X_gold, threshold, "Comparing csv positions...")
+
+    
+def compareDerivatives(grad, grad_gold, threshold):
+    """
+    This function compares derivatives in all cells to make sure they match
+    
+    Arguments:
+    grad -- numpy array containing gradients at the cells
+    grad_gold -- numpy array containing correct gradients of the cells
+    threshold -- threshold for comparing real numbers
+    """
+    compareNumpyArrays(grad, grad_gold, threshold, "Comparing csv derivatives...")
+
+    
+def compareMLOutput(out, out_gold, threshold):
+    """
+    This function compares positions of the cells to make sure they match
+    
+    Arguments:
+    out -- numpy array containing ML outputs at the cells
+    out_gold -- numpy array containing correct ML outputs of the cells
+    threshold -- threshold for comparing real numbers
+    """
+    compareNumpyArrays(out, out_gold, threshold, "Comparing csv ML output...")
+
+    
+def compareProcessedRANS(processed_rans, processed_rans_gold, threshold):
+    """
+    This function compares the processed RANS class to make sure they match
+    
+    Arguments:
+    processed_rans -- RANSDataset class containing processed data
+    processed_rans_gold -- RANSDataset class containing correct processed data
+    threshold -- threshold for comparing real numbers
+    """
+    
+    # Compare x positions in processed data
+    compareNumpyArrays(processed_rans.x, processed_rans_gold.x, threshold, 
+                       "Comparing x position in processed data...")                       
+    # Compare y positions in processed data
+    compareNumpyArrays(processed_rans.y, processed_rans_gold.y, threshold, 
+                       "Comparing y position in processed data...")
+    # Compare z positions in processed data
+    compareNumpyArrays(processed_rans.z, processed_rans_gold.z, threshold, 
+                       "Comparing z position in processed data...")    
+    # Compare T in processed data
+    compareNumpyArrays(processed_rans.T, processed_rans_gold.T, threshold, 
+                       "Comparing T in processed data...")                       
+    # Compare gradU in processed data
+    compareNumpyArrays(processed_rans.gradU, processed_rans_gold.gradU, threshold, 
+                       "Comparing gradU in processed data...")
+    # Compare gradT in processed data
+    compareNumpyArrays(processed_rans.gradT, processed_rans_gold.gradT, threshold, 
+                       "Comparing gradT in processed data...")
+    # Compare TKE in processed data
+    compareNumpyArrays(processed_rans.tke, processed_rans_gold.tke, threshold, 
+                       "Comparing TKE in processed data...")
+    # Compare epsilon in processed data
+    compareNumpyArrays(processed_rans.epsilon, processed_rans_gold.epsilon, threshold, 
+                       "Comparing epsilon in processed data...")
+    # Compare rho in processed data
+    compareNumpyArrays(processed_rans.rho, processed_rans_gold.rho, threshold, 
+                       "Comparing rho in processed data...")
+    # Compare nu_t in processed data
+    compareNumpyArrays(processed_rans.nut, processed_rans_gold.nut, threshold, 
+                       "Comparing nu_t in processed data...")
+    # Compare nu in processed data
+    compareNumpyArrays(processed_rans.nu, processed_rans_gold.nu, threshold, 
+                       "Comparing nu in processed data...")
+    # Compare wall distance in processed data
+    compareNumpyArrays(processed_rans.d, processed_rans_gold.d, threshold, 
+                       "Comparing wall distance in processed data...")
+    # Compare should_use in processed data
+    compareNumpyArrays(processed_rans.should_use, processed_rans_gold.should_use, 
+                       threshold, "Comparing should_use in processed data...")
+    # Compare x_features in processed data
+    compareNumpyArrays(processed_rans.x_features, processed_rans_gold.x_features, 
+                       threshold, "Comparing x_features in processed data...")    
+
+
+def compareNumpyArrays(array, array_gold, threshold, description):
+    """
+    This function compares two numpy arrays to make sure they are the same
+    
+    Arguments:
+    array -- numpy array that we are testing
+    array_gold -- correct numpy array
+    threshold -- threshold for comparing real numbers
+    description -- string containing the description of current arrays
+    """
+    
+    print(description)
+    assert array.shape == array_gold.shape
+    diff = np.sqrt((array - array_gold)**2)
+    assert np.amax(diff) <= threshold
+    
+
+    
+    
+    

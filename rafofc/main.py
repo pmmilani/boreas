@@ -39,10 +39,10 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                  U0 = None, D = None, rho0 = None, miu = None, deltaT = None, 
                  use_default_var_names = False, use_default_derivative_names = True,
                  calc_derivatives = True, write_derivatives = True, 
-                 threshold = 1e-4, 
+                 threshold = 1e-3, 
                  processed_load_path = None, processed_dump_path = None,
                  ip_file_path = None, csv_file_path = None,
-                 variables_to_write = ["alpha_t_ML"], outnames_to_write = ["uds-1"],                 
+                 variables_to_write = ["Prt_ML"], outnames_to_write = ["uds-1"],                 
                  ml_model_path = None):
     """
     Main function of package. Call this to take in a Tecplot file, process it, apply
@@ -56,20 +56,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                         will be saved.    
     zone -- optional argument. The zone where the flow field solution is saved in 
             Tecplot. By default, it is zone 0. This can be either a string (with the 
-            zone name) or an integer with the zone index.
-    U0 -- optional argument. Velocity scale that will be used to non-dimensionalize the
-          dataset. If it is not provided (default behavior), then the user will be 
-          prompted to enter an appropriate number.
-    D -- optional argument. Length scale that will be used to non-dimensionalize the
-         dataset. If it is not provided (default behavior), then the user will be 
-         prompted to enter an appropriate number.
-    rho0 -- optional argument. Density scale that will be used to non-dimensionalize the
-            dataset. If it is not provided (default behavior), then the user will be 
-            prompted to enter an appropriate number.
-    miu -- optional argument. Dynamic viscosity scale of the fluid, which will be used to
-           non-dimensionalize the dataset and calculate the Reynolds number. If it is not
-           provided (default behavior), then the user will be prompted to enter an 
-           appropriate number.
+            zone name) or an integer with the zone index.    
     deltaT -- optional argument. Temperature scale (Tmax - Tmin) that will be used to 
               non-dimensionalize the dataset. If it is not provided (default behavior),
               the user will be prompted to enter an appropriate number.    
@@ -103,7 +90,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                          save results to disk as soon as they are calculated.    
     threshold -- optional argument. This variable determines the threshold for 
                  (non-dimensional) temperature gradient below which we throw away a 
-                 point. Default value is 1e-4. For temperature gradient less than that,
+                 point. Default value is 1e-3. For temperature gradient less than that,
                  we use the Reynolds analagoy (with Pr_t=0.85). For gradients larger than
                  that, we use the ML model.                 
     processed_load_path -- optional argument. If this is supplied, then the function will
@@ -149,7 +136,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     # function can be done to go around this behavior
     dataset = TestCase(tecplot_in_path, zone=zone, 
                         use_default_names=use_default_var_names)
-    dataset.normalize(U0=U0, D=D, rho0=rho0, miu=miu, deltaT=deltaT)
+    dataset.normalize(deltaT=deltaT)
     
     # If this flag is True (default) calculate the derivatives and save the result to
     # disk (since it takes a while to do that...)
@@ -172,11 +159,11 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     # Initialize the ML model and use it for prediction. If ml_model_path is None, jus
     # load the default model from disk. 
     rf = MLModel(ml_model_path)
-    alpha_t_ML = rf.predict(x)
+    Prt_ML = rf.predict(x)
     
-    # Add alpha_t_ML as a variable in tecplot, create interp/csv files, and save new
+    # Add Prt_ML as a variable in tecplot, create interp/csv files, and save new
     # tecplot file with all new variables.
-    dataset.addMLDiffusivity(alpha_t_ML)    
+    dataset.addPrtML(Prt_ML)    
     if ip_file_path is not None:
         dataset.createInterpFile(ip_file_path, variables_to_write, outnames_to_write)    
     if csv_file_path is not None:

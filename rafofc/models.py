@@ -10,6 +10,7 @@ from sklearn.externals import joblib # joblib is used to load trained models fro
 from sklearn.ensemble import RandomForestRegressor
 import os
 import pkg_resources
+import numpy as np
 
 
 
@@ -63,27 +64,29 @@ class MLModel:
     
     def predict(self, x):    
         """
-        Predicts the diffusivity given the features. 
+        Predicts Pr_t given the features. 
         
         It assumes that the underlying implementation (default: random forests from
-        sklearn) contains a method called predict.
+        scikit-learn) contains a method called predict. It also assumes that the model
+        was trained to predict log(alpha_t / nu_t), so Pr_t = nu_t/alpha_t = 1/exp(y)
         
         Arguments:
         x -- numpy array (num_useful, N_FEATURES) of features
         
         Returns:
-        y -- numpy array (num_useful,) for the turbulent diffusivity predicted at each 
-             cell
+        y -- numpy array (num_useful,) for the turbulent Prandtl number predicted at
+             each cell
         """       
         
         assert isinstance(self.__model, RandomForestRegressor)
         assert x.shape[1] == 19, "Wrong number of features!"
         
         print("ML model loaded: {}".format(self.__description))
-        print("Predicting turbulent diffusivity using ML model...", end="", flush=True)
+        print("Predicting Pr-t using ML model...", end="", flush=True)
         y = self.__model.predict(x)
+        Prt = 1.0/np.exp(y)
         print(" Done")
-        return y
+        return Prt
     
     def printDescription(self):
         """

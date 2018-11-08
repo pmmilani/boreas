@@ -67,16 +67,12 @@ class ProcessedRANS:
     use. Numpy arrays are much easier/faster to operate on, so that is why this is used.
     """    
     
-    def __init__(self, n_cells, U0, D, rho0, deltaT):    
+    def __init__(self, n_cells, deltaT):    
         """
         Constructor for ProcessedRANS class.
         
         Arguments:
         n_cells -- number of cells in the fluid zone (the numpy arrays must be that long)
-        zone -- tecplot.data.zone containing the fluid zone, where the variables live
-        U0 -- velocity scale, used for non-dimensionalization
-        D -- length scale, used for non-dimensionalization
-        rho0 -- density scale, used for non-dimensionalization
         deltaT -- temperature scale, used for non-dimensionalization (Tmax-Tmin)        
         """
         
@@ -91,6 +87,7 @@ class ProcessedRANS:
         
         # This is a 1D array of size N, containing different quantities (one per cell)
         self.rho = np.empty(n_cells) # density
+        self.nu = np.empty(n_cells) # laminar viscosity
         self.T = np.empty(n_cells) # the temperature (scalar concentration)       
         self.tke = np.empty(n_cells) # RANS turbulent kinetic energy
         self.epsilon = np.empty(n_cells) # RANS dissipation
@@ -105,10 +102,7 @@ class ProcessedRANS:
         self.should_use = np.zeros(n_cells,dtype=bool)
         
         # The scales with which to normalize the dataset
-        self.U0 = U0
-        self.D = D 
-        self.rho0 = rho0
-        self.deltaT = deltaT
+        self.deltaT0 = deltaT
         
         
     def fillAndNonDimensionalize(self, zone, var_names):
@@ -116,7 +110,8 @@ class ProcessedRANS:
         This function is called to fill the numpy arrays with data from Tecplot.
 
         It takes in a zone of the .plt file and uses that data to fill the numpy
-        arrays contained by this class. It also non-dimensionalizes all the data
+        arrays contained by this class. It also non-dimensionalizes the temperature
+        differences.
         
         Arguments:
         zone -- tecplot.data.zone containing the fluid zone, where the variables live
@@ -164,22 +159,11 @@ class ProcessedRANS:
    
     def nonDimensionalize(self):
         """
-        This function is called to non-dimensionalize the numpy arrays in the class.
+        This function is called to non-dimensionalize the temperature gradient.
         """
         
-        self.x /= self.D
-        self.y /= self.D
-        self.z /= self.D
-        self.T /= self.deltaT
-        self.gradU /= (self.U0/self.D)
-        self.gradT /= (self.deltaT/self.D)
-        self.tke /= (self.U0**2)
-        self.epsilon /= (self.U0**3/self.D)
-        self.rho /= self.rho0
-        self.nut /= (self.rho0*self.U0*self.D)
-        self.nu /= (self.rho0*self.U0*self.D)
-        self.d /= self.D
-
+        self.gradT /= self.deltaT0
+        
         
     def sanityCheck(self):
         """
@@ -231,6 +215,9 @@ class ProcessedRANS:
         
         # the magnitude of RANS scalar gradient, shape (n_cells)
         grad_mag = np.sqrt(np.sum(self.gradT**2, axis=1))
+        
+        # Takes the gradient and non-dimensionalizes the length part of it
+        grad_mag = grad_mag / (self.epsilon / (self.tke**(3/2))) 
 
         self.should_use = (grad_mag >= threshold) 
         
@@ -274,38 +261,31 @@ class ProcessedRANS:
         
         return self.x_features # return the features, only where should_use == true
         
-    def fillDiffusivity(self, alpha_t):
+    def fillPrt(self, Prt):
         """
-        Takes in a 'skinny', dimensionless diffusivity and returns a dimensional value 
-        at every cell.
+        Takes in a 'skinny' Pr_t field and returns a full one
         
         Arguments:
-        alpha_t -- a numpy array shape (n_useful, ) containing a turbulent diffusivity
-                   value at each cell where should_use == True. This is the dimensionless
-                   diffusivity directly predicted by the machine learning model.
+        Prt -- a numpy array shape (n_useful, ) containing the turbulent Prandtl number
+               at each cell where should_use == True. This is the dimensionless
+               diffusivity directly predicted by the machine learning model.
                    
         Returns:
-        alpha_t_full -- a numpy array of shape (n_cells, ) containing a dimensional
-                        turbulent diffusivity in every cell of the domain. In cells
-                        where should_use == False, use Sc_t=0.85 assumption.
+        Prt_full -- a numpy array of shape (n_cells, ) containing a dimensional
+                    turbulent diffusivity in every cell of the domain. In cells
+                    where should_use == False, use Pr_t=0.85 assumption.
         """
         
         # make sure alpha_t has right size
-        assert alpha_t.size == self.n_useful, "alpha_t has wrong number of entries!"
+        assert Prt.size == self.n_useful, "Pr_t has wrong number of entries!"
         
         # Use Reynolds analogy everywhere first
-        SC_T = 0.85        
-        alpha_t_full = self.nut/SC_T # initial guess everywhere
+        PR_T = 0.85        
+        Prt_full = np.ones(self.n_cells) * PR_T # initial guess everywhere
         
-        # Fill in places where should_use is true with the predicted diffusivity
-        alpha_t_full[self.should_use] = alpha_t
+        # Fill in places where should_use is true with the predicted Prt_ML:
+        Prt_full[self.should_use] = Prt       
         
-        # Re-dimensionalize alpha_t_full
-        # rho0, U0, D are just scalars (entered by the user)
-        # rho has shape (n_cells,); it has the (dimensionless) density at every cell. 
-        #      It is needed for non-incompressible simulations.
-        alpha_t_full *= ( (self.rho0*self.rho)*self.U0*self.D )
-        
-        return alpha_t_full
+        return Prt_full
         
     

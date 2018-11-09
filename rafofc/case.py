@@ -335,7 +335,7 @@ class TestCase:
                                                            default_names[i]) 
                                                                   
                                                                   
-    def extractMLFeatures(self, threshold=1e-4, processed_load_path=None, 
+    def extractMLFeatures(self, threshold=1e-3, processed_load_path=None, 
                           processed_dump_path=None):
         """
         Extract quantities from the tecplot file into numpy arrays.
@@ -348,7 +348,7 @@ class TestCase:
         Arguments:
         threshold -- magnitude cut-off for the temperature scalar gradient: only use 
                      points with (dimensionless) magnitude higher than this. Default is 
-                     1e-4. Only change this if you know what you are doing.
+                     1e-3. Only change this if you know what you are doing.
         processed_load_path -- optional keyword argument. If this is not None, this 
                                function will attempt to read rans_data from disk and
                                restore it instead of recalculating everything. The path

@@ -36,7 +36,7 @@ def printInfo():
     
 def applyMLModel(tecplot_in_path, tecplot_out_path, *,  
                  zone = None, 
-                 U0 = None, D = None, rho0 = None, miu = None, deltaT = None, 
+                 deltaT = None, 
                  use_default_var_names = False, use_default_derivative_names = True,
                  calc_derivatives = True, write_derivatives = True, 
                  threshold = 1e-3, 
@@ -113,20 +113,20 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     variables_to_write -- optional argument. This is a list of strings containing names 
                           of variables in the Tecplot file that we want to write in the 
                           Fluent interpolation file/CSV file. By default, it contains
-                          only "alpha_t_ML", which is the machine learning turbulent
-                          diffusivity we just calculated.   
+                          only "Prt_ML", which is the machine learning turbulent
+                          Prandtl number we just calculated.   
     outnames_to_write -- optional argument. This is a list of strings that must have the 
                         same length as the previous argument. It contains the names that
                         each of the variables written in the interpolation file will 
-                        have. By default, this calls the turbulent diffusivity "uds-1" 
+                        have. By default, this calls the turbulent Prandtl number "uds-1" 
                         because in Fluent, an easy way to solve the Reynolds-averaged 
                         scalar transport equation with a custom diffusivity is to use a 
-                        user-defined scalar as containing that custom diffusivity.
+                        user-defined scalar as containing the custom Prandtl number.
     ml_model_path -- optional argument. This is the path where the function will look for
                      a pre-trained machine learning model. The file must be a pickled
                      instance of a random forest regressor class, saved to disk using 
                      joblib. By default, the default machine learning model (which is
-                     already pre-trained with LES/DNS of 3 cases) is loaded, which comes
+                     already pre-trained with LES/DNS of 4 cases) is loaded, which comes
                      together with the package.    
     """
     
@@ -156,7 +156,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                                   processed_load_path=processed_load_path,
                                   processed_dump_path=processed_dump_path)
     
-    # Initialize the ML model and use it for prediction. If ml_model_path is None, jus
+    # Initialize the ML model and use it for prediction. If ml_model_path is None, just
     # load the default model from disk. 
     rf = MLModel(ml_model_path)
     Prt_ML = rf.predict(x)

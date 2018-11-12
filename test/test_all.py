@@ -69,29 +69,29 @@ def test_full_cycle():
     dirname = os.path.dirname(__file__)
     
     # Relevant names of files    
-    tecplot_file_name = os.path.join(dirname, "FPG_coarse.plt")    
-    tecplot_file_output_name = os.path.join(dirname, "FPG_out.plt")    
-    csv_output_name = os.path.join(dirname, "FPG_out.csv")        
-    processed_rans_name = os.path.join(dirname, "data_rans_fpg_test.pckl")    
+    tecplot_file_name = os.path.join(dirname, "JICF_coarse_rans.plt")    
+    tecplot_file_output_name = os.path.join(dirname, "JICF_coarse_rans_out.plt")    
+    csv_output_name = os.path.join(dirname, "JICF_coarse_out.csv")        
+    processed_rans_name = os.path.join(dirname, "data_rans_JICF_test.pckl")    
     gold_file_name = os.path.join(dirname, "gold.pckl") # file containing correct results
     
     # Threshold for comparing two real numbers 
     threshold = 1e-6
     
     # Calls the main function on the sample .plt file.
-    # Sample file is a coarse FPG jet in crossflow.    
+    # Sample file is a coarse jet in crossflow.    
     applyMLModel(tecplot_file_name, tecplot_file_output_name,
-                 U0=0.67, D=0.006, rho0=998, miu=0.001003, deltaT=1, 
-                 use_default_var_names=True,
+                 deltaT=1, 
+                 use_default_var_names = True,
                  write_derivatives = False,
-                 csv_file_path=csv_output_name,
-                 processed_dump_path=processed_rans_name,
+                 csv_file_path = csv_output_name,
+                 processed_dump_path = processed_rans_name,
                  variables_to_write = ["ddx_U", "ddy_U", "ddz_U", "ddx_V", "ddy_V",
                                        "ddz_V", "ddx_W", "ddy_W", "ddz_W", "ddx_T", 
-                                       "ddy_T", "ddz_T", "should_use", "alpha_t_ML"], 
+                                       "ddy_T", "ddz_T", "should_use", "Prt_ML"], 
                  outnames_to_write = ["ddx_U", "ddy_U", "ddz_U", "ddx_V", "ddy_V", 
                                       "ddz_V", "ddx_W", "ddy_W", "ddz_W", "ddx_T", 
-                                      "ddy_T", "ddz_T", "should_use", "alpha_t_ML"])
+                                      "ddy_T", "ddz_T", "should_use", "Prt_ML"])
     
     # Load from disk the pre-saved gold data
     csv_array_gold, processed_rans_gold = joblib.load(gold_file_name)
@@ -148,7 +148,7 @@ def loadNewlyWrittenData(csv_output_name, processed_rans_name):
         entries = line.split(", ")
         variables_present = ["X", "Y", "Z", "ddx_U", "ddy_U", "ddz_U", "ddx_V", "ddy_V", 
                              "ddz_V", "ddx_W", "ddy_W", "ddz_W", "ddx_T", "ddy_T", 
-                             "ddz_T", "should_use", "alpha_t_ML"]
+                             "ddz_T", "should_use", "Prt_ML"]
         assert len(entries) == len(variables_present)
         for i in range(len(entries)):
             assert entries[i].strip() == variables_present[i].strip()
@@ -237,10 +237,10 @@ def compareProcessedRANS(processed_rans, processed_rans_gold, threshold):
     compareNumpyArrays(processed_rans.rho, processed_rans_gold.rho, threshold, 
                        "Comparing rho in processed data...")
     # Compare nu_t in processed data
-    compareNumpyArrays(processed_rans.nut, processed_rans_gold.nut, threshold, 
+    compareNumpyArrays(processed_rans.mut, processed_rans_gold.mut, threshold, 
                        "Comparing nu_t in processed data...")
     # Compare nu in processed data
-    compareNumpyArrays(processed_rans.nu, processed_rans_gold.nu, threshold, 
+    compareNumpyArrays(processed_rans.mu, processed_rans_gold.mu, threshold, 
                        "Comparing nu in processed data...")
     # Compare wall distance in processed data
     compareNumpyArrays(processed_rans.d, processed_rans_gold.d, threshold, 
@@ -269,7 +269,50 @@ def compareNumpyArrays(array, array_gold, threshold, description):
     diff = np.sqrt((array - array_gold)**2)
     assert np.amax(diff) <= threshold
     
-
     
+def writeGoldFiles(tecplot_file):
+    """
+    This function writes new gold.pckl files which serve to test the module
     
+    Arguments:
+    tecplot_file -- string with name of tecplot file used to test    
+    """
+    
+    # Make the path relative to the location of the present script
+    dirname = os.path.dirname(__file__)
+    
+    # Relevant names of files    
+    tecplot_file_name = os.path.join(dirname, tecplot_file)  
+    tecplot_file_output_name = os.path.join(dirname, "test_out.plt")    
+    csv_output_name = os.path.join(dirname, "JICF_coarse_out.csv")        
+    processed_rans_name = os.path.join(dirname, "data_rans_JICF_test.pckl")
+    gold_file_name = os.path.join(dirname, "gold.pckl") # file containing correct results    
+    
+    # Calls the main function on the sample .plt file.
+    # Sample file is a coarse jet in crossflow.    
+    applyMLModel(tecplot_file_name, tecplot_file_output_name,
+                 deltaT=1, 
+                 use_default_var_names = True,
+                 write_derivatives = False,
+                 csv_file_path = csv_output_name,
+                 processed_dump_path = processed_rans_name,
+                 variables_to_write = ["ddx_U", "ddy_U", "ddz_U", "ddx_V", "ddy_V",
+                                       "ddz_V", "ddx_W", "ddy_W", "ddz_W", "ddx_T", 
+                                       "ddy_T", "ddz_T", "should_use", "Prt_ML"], 
+                 outnames_to_write = ["ddx_U", "ddy_U", "ddz_U", "ddx_V", "ddy_V", 
+                                      "ddz_V", "ddx_W", "ddy_W", "ddz_W", "ddx_T", 
+                                      "ddy_T", "ddz_T", "should_use", "Prt_ML"])
+    
+    # Load from disk the files we just dumped
+    csv_array, processed_rans = loadNewlyWrittenData(csv_output_name, 
+                                                     processed_rans_name)
+    
+    # Writes list as the gold.pckl file
+    gold_list = [csv_array, processed_rans]
+    joblib.dump(gold_list, gold_file_name)
+                                                     
+    # Remove files I wrote to disk
+    os.remove(tecplot_file_output_name)
+    os.remove(csv_output_name)
+    os.remove(processed_rans_name)    
     

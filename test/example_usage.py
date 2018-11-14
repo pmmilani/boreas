@@ -14,10 +14,10 @@ def main():
     # order
     printInfo()
     
-    tecplot_file_name = "FPG_coarse.plt" # names of input tecplot binary file
-    tecplot_file_output_name = "FPG_out.plt" # name of output tecplot binary file
-    fluent_interp_output_name = "FPG_out.ip" # name of output Fluent interpolation file
-    csv_output_name = "FPG_out.csv" # name of output csv file
+    tecplot_file_name = "JICF_coarse_rans.plt" # names of input tecplot binary file
+    tecplot_file_output_name = "JICF_coarse_out.plt" # name of output tecplot binary file
+    fluent_interp_output_name = "JICF_coarse_out.ip" # name of output Fluent interpolation file
+    csv_output_name = "JICF_coarse_out.csv" # name of output csv file
     
     # Bare-bones, default invocation. Supply only the 2 required input arguments. Note
     # that this won't write interpolation or csv files.
@@ -36,19 +36,18 @@ def main():
     # With some more useful flags:
     """
     applyMLModel(tecplot_file_name, tecplot_file_output_name, 
-                 U0=0.67, D=0.006, rho0=998, miu=0.001003, deltaT=1,
+                 deltaT=1,
                  use_default_var_names=True,
                  processed_load_path="processed_cube.pckl", 
                  processed_dump_path="processed_cube.pckl",
                  ip_file_path=fluent_interp_output_name,
                  csv_file_path=csv_output_name)
-    """
-        
+    """        
     
     # If the derivatives have already been calculated:
     """
     applyMLModel(tecplot_file_name, tecplot_file_output_name, 
-                 U0=0.67, D=0.006, rho0=998, miu=0.001003, deltaT=1,
+                 deltaT=1,
                  use_default_var_names=True, 
                  processed_load_path="processed_cube.pckl", 
                  processed_dump_path="processed_cube.pckl",

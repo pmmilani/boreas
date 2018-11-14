@@ -11,13 +11,13 @@ with open("README.md", 'r') as f:
 
 setup(
    name='rafofc',
-   version='1.1.0',
-   description='RaFoFC v1.1.0 - Random Forests for Film Cooling Package',
+   version='1.2.0',
+   description='RaFoFC v1.2.0 - Random Forests for Film Cooling Package',
    license='Apache',
    long_description=long_description,
    author='Pedro M. Milani',
    author_email='pmmilani@stanford.edu',
    packages=['rafofc'],  # same as name
-   install_requires=['numpy', 'scipy', 'pytecplot', 'sklearn', 'tqdm', 'pytest'], # dependencies
+   install_requires=['numpy', 'scipy==0.19.0', 'pytecplot>=0.10.0', 'scikit-learn==0.19.0', 'tqdm', 'pytest'], # dependencies
    include_package_data=True      
 )

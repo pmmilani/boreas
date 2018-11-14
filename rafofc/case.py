@@ -220,51 +220,27 @@ class TestCase:
         assert isVariable("Z", self.__dataset), 'Variable "Z" not found in the dataset!'
             
     
-    def normalize(self, U0=None, D=None, rho0=None, miu=None, deltaT=None):
+    def normalize(self, deltaT=None):
         """
         Collects scales from the user, which are used to non-dimensionalize data.
         
         This function is called to read in the dimensional scales of the dataset, so we
-        can appropriately non-dimensionalize everything later. It can also be called with 
-        arguments, in which case the user is not prompted to write anything. These scales
-        must be given in the same units as the dataset.
+        can appropriately non-dimensionalize the temperature later. It can also be called 
+        with an argument, in which case the user is not prompted to write anything. The
+        temperature scale must be given in the same units as the dataset - it will be
+        used to re-scale the temperature gradient.
         
         Arguments:
-        U0 -- velocity scale
-        D -- length scale
-        rho0 -- density
-        miu -- laminar dynamic viscosity
         deltaT -- temperature scale
         """
         
-        # Read in the five quantities if they are not passed in
-        if U0 is None:
-            U0 = getFloatFromUser("Enter velocity scale (typically hole bulk velocity): ")        
-        if D is None:
-            D = getFloatFromUser("Enter length scale (typically hole diameter): ")            
-        if rho0 is None:
-            rho0 = getFloatFromUser("Enter density scale: ")            
-        if miu is None:
-            miu = getFloatFromUser("Enter dynamic viscosity (miu): ")            
+        # Read in the five quantities if they are not passed in                
         if deltaT is None:
             deltaT = getFloatFromUser("Enter temperature delta (Tmax-Tmin): ")
             
         # Set instance variables to hold them
-        self.U0 = U0
-        self.D = D
-        self.rho0 = rho0
-        self.miu = miu
         self.deltaT = deltaT
         
-        # Calculate Re and print warning if necessary
-        Re = rho0*U0*D/miu
-        print("Reynolds number: Re = {}".format(Re))
-        if Re < 1000 or Re > 6000: # print warning
-            print("\t Warning: the model was calibrated with data between " 
-                  + "Re=3000 and Re=5400.")
-            print("\t Extrapolation to different Reynolds number is an "
-                  + "open research topic.")                             
-                                           
     
     def calculateDerivatives(self):
         """
@@ -359,7 +335,7 @@ class TestCase:
                                                            default_names[i]) 
                                                                   
                                                                   
-    def extractMLFeatures(self, threshold=1e-4, processed_load_path=None, 
+    def extractMLFeatures(self, threshold=1e-3, processed_load_path=None, 
                           processed_dump_path=None):
         """
         Extract quantities from the tecplot file into numpy arrays.
@@ -372,7 +348,7 @@ class TestCase:
         Arguments:
         threshold -- magnitude cut-off for the temperature scalar gradient: only use 
                      points with (dimensionless) magnitude higher than this. Default is 
-                     1e-4. Only change this if you know what you are doing.
+                     1e-3. Only change this if you know what you are doing.
         processed_load_path -- optional keyword argument. If this is not None, this 
                                function will attempt to read rans_data from disk and
                                restore it instead of recalculating everything. The path
@@ -410,8 +386,7 @@ class TestCase:
         #---- These next four commands initialize the ProcessedRANS and do all the necessary
         #---- processing to obtain features.
         # Initialize the processed RANS dataset (numpy arrays only) with num_elements.
-        self.__proc_rans = ProcessedRANS(self.__zone.num_elements, self.U0, self.D, 
-                                         self.rho0, self.deltaT)
+        self.__proc_rans = ProcessedRANS(self.__zone.num_elements, self.deltaT)
         # Fill the ProcessedRANS instance with relevant quantities from this zone
         self.__proc_rans.fillAndNonDimensionalize(self.__zone, self.__var_names)
         # Determine which points should be used
@@ -429,9 +404,9 @@ class TestCase:
         return x
         
         
-    def addMLDiffusivity(self, alpha_t):
+    def addPrtML(self, Prt):
         """
-        Adds alpha_t_ML and should_use as variables in the Tecplot file.
+        Adds Prt_ML and should_use as variables in the Tecplot file.
         
         This method takes in a diffusivity array alpha_t that was predicted by the 
         machine learning model and adds that as a variable to the Tecplot file. It
@@ -439,15 +414,15 @@ class TestCase:
         where we use the ML model and 0 where we use the default Reynolds analogy.
         
         Arguments:
-        alpha_t -- numpy array shape (num_useful, ) with the dimensionless turbulent
-                   diffusivity predicted at each cell. 
+        Prt -- numpy array shape (num_useful, ) with the turbulent Prandtl number
+               (Pr_t) predicted at each cell. 
         """
     
         # First, create a diffusivity that is dimensional and available at every cell
-        alpha_t_full = self.__proc_rans.fillDiffusivity(alpha_t)
+        Prt_full = self.__proc_rans.fillPrt(Prt)
         
-        # Creates a variable called "alpha_t_ML" and "should_use" everywhere
-        self.__dataset.add_variable(name="alpha_t_ML",
+        # Creates a variable called "Prt_ML" and "should_use" everywhere
+        self.__dataset.add_variable(name="Prt_ML",
                                     dtypes=tecplot.constant.FieldDataType.Float,
                                     locations=tecplot.constant.ValueLocation.CellCentered)
         self.__dataset.add_variable(name="should_use",
@@ -455,9 +430,9 @@ class TestCase:
                                     locations=tecplot.constant.ValueLocation.CellCentered)
         
         # Add alpha_t_full to the zone
-        assert self.__zone.num_elements == alpha_t_full.size, \
-                                "alpha_t_full has wrong number of entries"
-        self.__zone.values("alpha_t_ML")[:] = alpha_t_full.tolist()
+        assert self.__zone.num_elements == Prt_full.size, \
+                                "Prt_full has wrong number of entries"
+        self.__zone.values("Prt_ML")[:] = Prt_full.tolist()
 
         # Add should_use to the zone                
         self.__zone.values("should_use")[:] = self.__proc_rans.should_use.tolist()           

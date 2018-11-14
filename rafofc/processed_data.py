@@ -11,32 +11,20 @@ import time # needed by tqdm
 from tqdm import tqdm # progress bar
         
         
-def calcInvariants(gradU, gradT, tke, epsilon, d, nut, nu, n_features):
+def calcInvariants(gradU, gradT, n_features):
     """
-    This function calculates the invariant basis at each point.
+    This function calculates the invariant basis at one point.
 
     Arguments:
     gradU -- 2D tensor with local velocity gradient (numpy array shape (3,3))
     gradT -- array with local temperature gradient (numpy array shape (3,))
-    tke -- scalar with the local turbulent kinetic energy
-    epsilon -- scalar with the local dissipation rate
-    d -- scalar with the local distance to the wall
-    nut -- scalar with local eddy viscosity
-    nu -- scalar with the local laminar viscosity
     n_features -- number of features for the ML model
     
     Returns:
-    invariants -- array of shape (n_features,) that contains the features
+    invariants -- array of shape (n_features-2,) that contains the invariant basis
+                  from the gradient tensors 
                   that are used by the ML model to make a prediction at the current point
-    """
-
-    invariants = np.empty(n_features)
-
-    S = 0.5*tke/epsilon*(gradU + np.transpose(gradU)) # symmetric component
-    R = 0.5*tke/epsilon*(gradU - np.transpose(gradU)) # anti-symmetric component
-    u = (tke**(1.5)/epsilon)*gradT # vector with concentration gradient
-    Re_wall = np.sqrt(tke)*d/nu # Reynolds number indicating distance to wall
-
+    
     # from Smith, same order I have in my notebook page 12
     invariants[0] = np.trace(np.linalg.multi_dot([S, S]))
     invariants[1] = np.trace(np.linalg.multi_dot([S, S, S]))
@@ -44,20 +32,54 @@ def calcInvariants(gradU, gradT, tke, epsilon, d, nut, nu, n_features):
     invariants[3] = np.trace(np.linalg.multi_dot([R, R, S]))
     invariants[4] = np.trace(np.linalg.multi_dot([R, R, S, S]))
     invariants[5] = np.trace(np.linalg.multi_dot([R, R, S, R, S, S]))
-    invariants[6] = np.linalg.multi_dot([u, u])
-    invariants[7] = np.linalg.multi_dot([u, S, u])
-    invariants[8] = np.linalg.multi_dot([u, S, S, u])
-    invariants[9] = np.linalg.multi_dot([u, R, R, u])
-    invariants[10] = np.linalg.multi_dot([u, R, S, u])
-    invariants[11] = np.linalg.multi_dot([u, R, S, S, u])
-    invariants[12] = np.linalg.multi_dot([u, S, R, S, S, u])
-    invariants[13] = np.linalg.multi_dot([u, R, R, S, u])
-    invariants[14] = np.linalg.multi_dot([u, R, R, S, S, u])
-    invariants[15] = np.linalg.multi_dot([u, R, R, S, R, u])
-    invariants[16] = np.linalg.multi_dot([u, R, S, S, R, R, u])
+    invariants[6] = np.linalg.multi_dot([gradT, gradT])
+    invariants[7] = np.linalg.multi_dot([gradT, S, gradT])
+    invariants[8] = np.linalg.multi_dot([gradT, S, S, gradT])
+    invariants[9] = np.linalg.multi_dot([gradT, R, R, gradT])
+    invariants[10] = np.linalg.multi_dot([gradT, R, S, gradT])
+    invariants[11] = np.linalg.multi_dot([gradT, R, S, S, gradT])
+    invariants[12] = np.linalg.multi_dot([gradT, S, R, S, S, gradT])
+    invariants[13] = np.linalg.multi_dot([gradT, R, R, S, gradT])
+    invariants[14] = np.linalg.multi_dot([gradT, R, R, S, S, gradT])
+    invariants[15] = np.linalg.multi_dot([gradT, R, R, S, R, gradT])
+    invariants[16] = np.linalg.multi_dot([gradT, R, S, S, R, R, gradT])
     invariants[17] = Re_wall
     invariants[18] = nut/nu
+    """
 
+    S = (gradU + np.transpose(gradU)) # symmetric component
+    R = (gradU - np.transpose(gradU)) # anti-symmetric component
+     
+    # For speed, pre-calculate these
+    S2 = np.linalg.multi_dot([S, S])
+    R2 = np.linalg.multi_dot([R, R])
+    R2_S = np.linalg.multi_dot([R2, S])   
+    R_S2 = np.linalg.multi_dot([R, S2])  
+    
+    ### Fill basis 0-16 
+    invariants = np.empty(n_features-2)
+    
+    # Velocity gradient only (0-5)
+    invariants[0] = np.trace(S2)
+    invariants[1] = np.trace(np.linalg.multi_dot([S2, S]))
+    invariants[2] = np.trace(R2)
+    invariants[3] = np.trace(R2_S)
+    invariants[4] = np.trace(np.linalg.multi_dot([R2, S2]))
+    invariants[5] = np.trace(np.linalg.multi_dot([R2_S, R_S2]))
+    
+    # Velocity + temperature gradients (6-16)
+    invariants[6] = np.linalg.multi_dot([gradT, gradT])
+    invariants[7] = np.linalg.multi_dot([gradT, S, gradT])
+    invariants[8] = np.linalg.multi_dot([gradT, S2, gradT])
+    invariants[9] = np.linalg.multi_dot([gradT, R2, gradT])
+    invariants[10] = np.linalg.multi_dot([gradT, R, S, gradT])
+    invariants[11] = np.linalg.multi_dot([gradT, R_S2, gradT])
+    invariants[12] = np.linalg.multi_dot([gradT, S, R_S2, gradT])
+    invariants[13] = np.linalg.multi_dot([gradT, R2_S, gradT])
+    invariants[14] = np.linalg.multi_dot([gradT, R2, S2, gradT])
+    invariants[15] = np.linalg.multi_dot([gradT, R2_S, R, gradT])
+    invariants[16] = np.linalg.multi_dot([gradT, R_S2, R2, gradT])    
+    
     return invariants
     
     
@@ -67,16 +89,12 @@ class ProcessedRANS:
     use. Numpy arrays are much easier/faster to operate on, so that is why this is used.
     """    
     
-    def __init__(self, n_cells, U0, D, rho0, deltaT):    
+    def __init__(self, n_cells, deltaT):    
         """
         Constructor for ProcessedRANS class.
         
         Arguments:
         n_cells -- number of cells in the fluid zone (the numpy arrays must be that long)
-        zone -- tecplot.data.zone containing the fluid zone, where the variables live
-        U0 -- velocity scale, used for non-dimensionalization
-        D -- length scale, used for non-dimensionalization
-        rho0 -- density scale, used for non-dimensionalization
         deltaT -- temperature scale, used for non-dimensionalization (Tmax-Tmin)        
         """
         
@@ -84,31 +102,15 @@ class ProcessedRANS:
                 
         self.n_cells = n_cells # this is the number of elements(cells) in this dataset
         
-        # These are 1D arrays of size N, containing the x,y,z position of the cell
-        self.x = np.empty(n_cells) 
-        self.y = np.empty(n_cells) 
-        self.z = np.empty(n_cells)        
-        
-        # This is a 1D array of size N, containing different quantities (one per cell)
-        self.rho = np.empty(n_cells) # density
-        self.T = np.empty(n_cells) # the temperature (scalar concentration)       
-        self.tke = np.empty(n_cells) # RANS turbulent kinetic energy
-        self.epsilon = np.empty(n_cells) # RANS dissipation
-        self.nut = np.empty(n_cells) # eddy viscosity from RANS
-        self.d = np.empty(n_cells) # distance to nearest wall
-        
-        # These contain the gradients
+        # These contain the gradients, which must be initialized with right dimensions
         self.gradU = np.empty((n_cells, 3, 3)) # this is a 3D array of size Nx3x3
         self.gradT = np.empty((n_cells, 3)) # this is a 2D array of size Nx3
         
         # This is a 1D boolean array which indicates which indices have high enough gradient
         self.should_use = np.zeros(n_cells,dtype=bool)
         
-        # The scales with which to normalize the dataset
-        self.U0 = U0
-        self.D = D 
-        self.rho0 = rho0
-        self.deltaT = deltaT
+        # The temperature scale with which to normalize the dataset
+        self.deltaT0 = deltaT
         
         
     def fillAndNonDimensionalize(self, zone, var_names):
@@ -116,7 +118,8 @@ class ProcessedRANS:
         This function is called to fill the numpy arrays with data from Tecplot.
 
         It takes in a zone of the .plt file and uses that data to fill the numpy
-        arrays contained by this class. It also non-dimensionalizes all the data
+        arrays contained by this class. It also non-dimensionalizes the temperature
+        differences.
         
         Arguments:
         zone -- tecplot.data.zone containing the fluid zone, where the variables live
@@ -147,12 +150,12 @@ class ProcessedRANS:
         self.gradT[:, 1] = np.asarray(zone.values(var_names["ddy_T"])[:])
         self.gradT[:, 2] = np.asarray(zone.values(var_names["ddz_T"])[:])
         
-        # Other scalars: density, tke, epsilon, nu_t, nu, distance to wall
+        # Other scalars: density, tke, epsilon, mu_t, mu, distance to wall
         self.tke = np.asarray(zone.values(var_names["TKE"])[:])
         self.epsilon = np.asarray(zone.values(var_names["epsilon"])[:])
         self.rho  = np.asarray(zone.values(var_names["Density"])[:])
-        self.nu = np.asarray(zone.values(var_names["laminar viscosity"])[:])
-        self.nut = np.asarray(zone.values(var_names["turbulent viscosity"])[:])
+        self.mu = np.asarray(zone.values(var_names["laminar viscosity"])[:])
+        self.mut = np.asarray(zone.values(var_names["turbulent viscosity"])[:])
         self.d = np.asarray(zone.values(var_names["distance to wall"])[:])
         
         # Non-dimensionalization done in different method
@@ -164,22 +167,11 @@ class ProcessedRANS:
    
     def nonDimensionalize(self):
         """
-        This function is called to non-dimensionalize the numpy arrays in the class.
+        This function is called to non-dimensionalize the temperature gradient.
         """
         
-        self.x /= self.D
-        self.y /= self.D
-        self.z /= self.D
-        self.T /= self.deltaT
-        self.gradU /= (self.U0/self.D)
-        self.gradT /= (self.deltaT/self.D)
-        self.tke /= (self.U0**2)
-        self.epsilon /= (self.U0**3/self.D)
-        self.rho /= self.rho0
-        self.nut /= (self.rho0*self.U0*self.D)
-        self.nu /= (self.rho0*self.U0*self.D)
-        self.d /= self.D
-
+        self.gradT /= self.deltaT0
+        
         
     def sanityCheck(self):
         """
@@ -198,18 +190,18 @@ class ProcessedRANS:
                "Wrong number of entries for epsilon. Check that it is cell centered."
         assert self.rho.size == self.n_cells, \
                "Wrong number of entries for rho. Check that it is cell centered."
-        assert self.nut.size == self.n_cells, \
-               "Wrong number of entries for nu_t. Check that it is cell centered."
-        assert self.nu.size == self.n_cells, \
-               "Wrong number of entries for nu. Check that it is cell centered."
+        assert self.mut.size == self.n_cells, \
+               "Wrong number of entries for mu_t. Check that it is cell centered."
+        assert self.mu.size == self.n_cells, \
+               "Wrong number of entries for mu. Check that it is cell centered."
         assert self.d.size == self.n_cells, \
                "Wrong number of entries for d. Check that it is cell centered."
         
         assert (self.tke >= 0).all(), "Found negative entries for tke!"
         assert (self.epsilon >= 0).all(), "Found negative entries for epsilon!"
         assert (self.rho >= 0).all(), "Found negative entries for rho!"
-        assert (self.nut >= 0).all(), "Found negative entries for nut!"
-        assert (self.nu >= 0).all(), "Found negative entries for nu!"
+        assert (self.mut >= 0).all(), "Found negative entries for mut!"
+        assert (self.mu >= 0).all(), "Found negative entries for mu!"
         assert (self.d >= 0).all(), "Found negative entries for d!"
         
         
@@ -231,9 +223,11 @@ class ProcessedRANS:
         
         # the magnitude of RANS scalar gradient, shape (n_cells)
         grad_mag = np.sqrt(np.sum(self.gradT**2, axis=1))
-
-        self.should_use = (grad_mag >= threshold) 
         
+        # Takes the gradient and non-dimensionalizes the length part of it
+        grad_mag = grad_mag*(self.tke**(1.5)/self.epsilon)
+
+        self.should_use = (grad_mag >= threshold)        
 
 
     def produceFeatures(self):
@@ -250,62 +244,62 @@ class ProcessedRANS:
         
         print("Out of {} total points, ".format(self.n_cells)
               + "{} have significant gradient and will be used".format(self.n_useful))
-        
-        # this is the feature vector
-        x_features = np.empty((self.n_useful, self.N_FEATURES)) 
-        
-        # this index grows sequentially (0, 1, ..., self.n_useful-1) to count which 
-        # element of x_features we are in
-        index = 0; 
-        
         print("Extracting features that will be used by ML model...")
         
-        # Loop only through the indices where should_use is true
+        # this is the feature vector
+        x_features = np.empty((self.n_useful, self.N_FEATURES))         
+                
+        # Non-dimensionalize in bulk and select only the points where should_use is true
+        gradU_factor = 0.5*self.tke[self.should_use]/self.epsilon[self.should_use]
+        gradT_factor = (self.tke[self.should_use]**(1.5)/self.epsilon[self.should_use])
+        gradU_temporary = self.gradU[self.should_use,:,:]*gradU_factor[:,None,None]
+        gradT_temporary = self.gradT[self.should_use,:]*gradT_factor[:,None]
+        
+        # Loop only where should_use is true to extract invariant basis
         # tqdm wraps around the iterable and generates a progress bar
-        indices_to_iterate = (np.arange(self.n_cells))[self.should_use]
-        for i in tqdm(indices_to_iterate): 
-            x_features[index, :] = calcInvariants(self.gradU[i,:,:], self.gradT[i,:], 
-                                                  self.tke[i], self.epsilon[i], 
-                                                  self.d[i], self.nut[i], self.nu[i],
-                                                  self.N_FEATURES)
-            index += 1
+        for i in tqdm(range(self.n_useful)): 
+            x_features[i, 0:self.N_FEATURES-2] = calcInvariants(gradU_temporary[i,:,:],
+                                                                gradT_temporary[i,:],
+                                                                self.N_FEATURES)            
         
+        # Add last two scalars to the features (distance to wall and nu_t/nu)
+        Re_wall = np.sqrt(self.tke[self.should_use])*self.d[self.should_use]*\
+                    self.rho[self.should_use]/self.mu[self.should_use]
+        nut_over_nu = self.mut[self.should_use]/self.mu[self.should_use]
+        
+        x_features[:, self.N_FEATURES-2] = Re_wall
+        x_features[:, self.N_FEATURES-1] = nut_over_nu
+                
         self.x_features = x_features
-        
+        print("Done!")
+                
         return self.x_features # return the features, only where should_use == true
         
-    def fillDiffusivity(self, alpha_t):
+    def fillPrt(self, Prt):
         """
-        Takes in a 'skinny', dimensionless diffusivity and returns a dimensional value 
-        at every cell.
+        Takes in a 'skinny' Pr_t field and returns a full one
         
         Arguments:
-        alpha_t -- a numpy array shape (n_useful, ) containing a turbulent diffusivity
-                   value at each cell where should_use == True. This is the dimensionless
-                   diffusivity directly predicted by the machine learning model.
+        Prt -- a numpy array shape (n_useful, ) containing the turbulent Prandtl number
+               at each cell where should_use == True. This is the dimensionless
+               diffusivity directly predicted by the machine learning model.
                    
         Returns:
-        alpha_t_full -- a numpy array of shape (n_cells, ) containing a dimensional
-                        turbulent diffusivity in every cell of the domain. In cells
-                        where should_use == False, use Sc_t=0.85 assumption.
+        Prt_full -- a numpy array of shape (n_cells, ) containing a dimensional
+                    turbulent diffusivity in every cell of the domain. In cells
+                    where should_use == False, use Pr_t=0.85 assumption.
         """
         
         # make sure alpha_t has right size
-        assert alpha_t.size == self.n_useful, "alpha_t has wrong number of entries!"
+        assert Prt.size == self.n_useful, "Pr_t has wrong number of entries!"
         
         # Use Reynolds analogy everywhere first
-        SC_T = 0.85        
-        alpha_t_full = self.nut/SC_T # initial guess everywhere
+        PR_T = 0.85        
+        Prt_full = np.ones(self.n_cells) * PR_T # initial guess everywhere
         
-        # Fill in places where should_use is true with the predicted diffusivity
-        alpha_t_full[self.should_use] = alpha_t
+        # Fill in places where should_use is true with the predicted Prt_ML:
+        Prt_full[self.should_use] = Prt       
         
-        # Re-dimensionalize alpha_t_full
-        # rho0, U0, D are just scalars (entered by the user)
-        # rho has shape (n_cells,); it has the (dimensionless) density at every cell. 
-        #      It is needed for non-incompressible simulations.
-        alpha_t_full *= ( (self.rho0*self.rho)*self.U0*self.D )
-        
-        return alpha_t_full
+        return Prt_full
         
     

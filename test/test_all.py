@@ -247,13 +247,13 @@ def compareProcessedRANS(processed_rans, processed_rans_gold, threshold):
                        "Comparing wall distance in processed data...")
     # Compare should_use in processed data
     compareNumpyArrays(processed_rans.should_use, processed_rans_gold.should_use, 
-                       threshold, "Comparing should_use in processed data...")
+                       threshold, "Comparing should_use in processed data...", is_boolean=True)
     # Compare x_features in processed data
     compareNumpyArrays(processed_rans.x_features, processed_rans_gold.x_features, 
                        threshold, "Comparing x_features in processed data...")    
 
 
-def compareNumpyArrays(array, array_gold, threshold, description):
+def compareNumpyArrays(array, array_gold, threshold, description, is_boolean=False):
     """
     This function compares two numpy arrays to make sure they are the same
     
@@ -262,11 +262,15 @@ def compareNumpyArrays(array, array_gold, threshold, description):
     array_gold -- correct numpy array
     threshold -- threshold for comparing real numbers
     description -- string containing the description of current arrays
+    is_boolean -- used when comparing two boolean arrays (such as should_use)
     """
     
     print(description)
     assert array.shape == array_gold.shape
-    diff = np.sqrt((array - array_gold)**2)
+    if is_boolean:
+        diff = np.sqrt((array.astype(float) - array_gold.astype(float))**2)
+    else:
+        diff = np.sqrt((array - array_gold)**2)
     assert np.amax(diff) <= threshold
     
     

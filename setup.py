@@ -11,8 +11,8 @@ with open("README.md", 'r') as f:
 
 setup(
    name='rafofc',
-   version='1.2.0',
-   description='RaFoFC v1.2.0 - Random Forests for Film Cooling Package',
+   version='1.2.1',
+   description='RaFoFC v1.2.1 - Random Forests for Film Cooling Package',
    license='Apache',
    long_description=long_description,
    author='Pedro M. Milani',

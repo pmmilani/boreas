@@ -294,7 +294,7 @@ class ProcessedRANS:
         assert Prt.size == self.n_useful, "Pr_t has wrong number of entries!"
         
         # Use Reynolds analogy everywhere first
-        PR_T = 0.85        
+        PR_T = 0.7        
         Prt_full = np.ones(self.n_cells) * PR_T # initial guess everywhere
         
         # Fill in places where should_use is true with the predicted Prt_ML:

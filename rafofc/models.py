@@ -11,6 +11,7 @@ from sklearn.ensemble import RandomForestRegressor
 import os
 import pkg_resources
 import numpy as np
+from rafofc import constants
 
 
 

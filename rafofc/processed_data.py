@@ -9,6 +9,7 @@ import tecplot
 import numpy as np
 import time # needed by tqdm
 from tqdm import tqdm # progress bar
+from rafofc import constants
         
         
 def calcInvariants(gradU, gradT, n_features):
@@ -98,7 +99,7 @@ class ProcessedRANS:
         deltaT -- temperature scale, used for non-dimensionalization (Tmax-Tmin)        
         """
         
-        self.N_FEATURES = 19 # constant, indicates number of features in the ML model
+        self.N_FEATURES = constants.N_FEATURES # constant, indicates number of features in the ML model
                 
         self.n_cells = n_cells # this is the number of elements(cells) in this dataset
         
@@ -287,15 +288,14 @@ class ProcessedRANS:
         Returns:
         Prt_full -- a numpy array of shape (n_cells, ) containing a dimensional
                     turbulent diffusivity in every cell of the domain. In cells
-                    where should_use == False, use Pr_t=0.85 assumption.
+                    where should_use == False, use fixed Pr_t assumption.
         """
         
         # make sure alpha_t has right size
         assert Prt.size == self.n_useful, "Pr_t has wrong number of entries!"
         
         # Use Reynolds analogy everywhere first
-        PR_T = 0.7        
-        Prt_full = np.ones(self.n_cells) * PR_T # initial guess everywhere
+        Prt_full = np.ones(self.n_cells) * constants.PR_T # initial guess everywhere
         
         # Fill in places where should_use is true with the predicted Prt_ML:
         Prt_full[self.should_use] = Prt       

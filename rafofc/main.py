@@ -9,6 +9,7 @@ import numpy as np
 from pkg_resources import get_distribution
 from rafofc.models import MLModel
 from rafofc.case import TestCase
+from rafofc import constants
 
 def printInfo():
     """
@@ -168,5 +169,24 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
         dataset.createInterpFile(ip_file_path, variables_to_write, outnames_to_write)    
     if csv_file_path is not None:
         dataset.createCsvFile(csv_file_path, variables_to_write, outnames_to_write)        
-    dataset.saveDataset(tecplot_out_path)   
+    dataset.saveDataset(tecplot_out_path)
 
+
+def trainMLModel():
+
+    # Initialize dataset and get scales for non-dimensionalization. The default behavior
+    # is to ask the user for the names and the scales. Passing keyword arguments to this
+    # function can be done to go around this behavior
+    dataset = TrainingCase(tecplot_in_path, zone=zone, 
+                        use_default_names=use_default_var_names)
+    dataset.normalize(deltaT=deltaT)
+    
+    # If this flag is True (default) calculate the derivatives and save the result to
+    # disk (since it takes a while to do that...)
+    if calc_derivatives:
+        dataset.calculateDerivatives()
+        if write_derivatives: # write new Tecplot file to disk
+            dataset.saveDataset(tecplot_in_path[0:-4] + "_derivatives.plt")
+    else:
+        print("Derivatives already calculated!")
+        dataset.addDerivativeNames(use_default_derivative_names)

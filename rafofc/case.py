@@ -5,12 +5,13 @@ load/edit/save a tecplot plot file
 """
 
 # ------------ Import statements
-from sklearn.externals import joblib # joblib is used to load files from disk
+import joblib # joblib is used to load files from disk
 import timeit # for timing the derivative
 import tecplot
 import os
 import numpy as np
 from rafofc.processed_data import ProcessedRANS
+from rafofc import constants
 
 
 def getFloatFromUser(message):
@@ -117,9 +118,9 @@ def writeValues(file, variable):
     file.write(")\n") # must end with parenthesis and new line
     
 
-class TestCase:
+class Case:
     """
-    This class is holds the information of a single test case (just RANS simulation).
+    This class is holds the information of a single case (either training or testing).
     """
 
     def __init__(self, filepath, zone=None, use_default_names=False):
@@ -402,8 +403,27 @@ class TestCase:
         
         # return the extracted arrays
         return x
+         
+        
+    def saveDataset(self, path):
+        """
+        Saves current state of tecplot dataset as .plt binary file.        
+        
+        Arguments:
+        path -- path where .plt file should be saved.
+        """
+        
+        print("Saving .plt file to {}...".format(path), end="", flush=True)
+        tecplot.data.save_tecplot_plt(filename=path, dataset=self.__dataset)
+        print(" Done")
         
         
+class TestCase(Case):
+    """
+    This class is holds the information of a single test case (just RANS simulation).
+    """
+
+    
     def addPrtML(self, Prt):
         """
         Adds Prt_ML and should_use as variables in the Tecplot file.
@@ -584,18 +604,46 @@ class TestCase:
                 csv_file.write("\n")                
 
         print(" Done")
+
+
+
+class TrainingCase(Case):
+    """
+    This class is holds the information of a single training case (LES information, including u'c')
+    """
+    
+    def __init__(self, filepath, zone=None, use_default_names=False):
+        super().__init__(filepath, zone, use_default_names) # performs regular initialization
         
+        self.initializeVarNames_uc(use_default_names); # adds extra variable names
+    
         
-    def saveDataset(self, path):
-        """
-        Saves current state of tecplot dataset as .plt binary file.        
+    def initializeVarNames_uc(use_default_names):    
+                
+        # These are the keys for the 3 extra variables we need for training
+        variables = ["uc", "vc", "wc"]
+                     
+        # These are the default names we enter if user refuses to provide one
+        default_names = ["uc", "vc", "wc"]
+                         
+        # Loop through all the variables that we must add
+        for i, key in enumerate(variables):
         
-        Arguments:
-        path -- path where .plt file should be saved.
-        """
+            # If I want to use default names for the variables
+            if use_default_names:                
+                
+                # Check default names are valid, otherwise crash
+                assert isVariable(default_names[i], self.__dataset), \
+                      "Default name {} is not a valid variable!".format(default_names[i])
+                
+                # Add default name to dictionary
+                self.__var_names[key] = default_names[i]
+            
+            # Here, just get a name from the user
+            else:
+                self.__var_names[key] = getVarNameFromUser("Enter name for "
+                                                           + "{} variable: ".format(key), 
+                                                            self.__dataset, 
+                                                            default_names[i])
         
-        print("Saving .plt file to {}...".format(path), end="", flush=True)
-        tecplot.data.save_tecplot_plt(filename=path, dataset=self.__dataset)
-        print(" Done")
-        
-        
+            

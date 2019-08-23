@@ -18,6 +18,6 @@ setup(
    author='Pedro M. Milani',
    author_email='pmmilani@stanford.edu',
    packages=['rafofc'],  # same as name
-   install_requires=['pytecplot>=0.10.0', 'scikit-learn>=0.19.0', 'tqdm', 'pytest'], # dependencies
+   install_requires=['pytecplot>=0.10.0', 'scikit-learn=0.21.2', 'tqdm', 'pytest'], # dependencies
    include_package_data=True      
 )

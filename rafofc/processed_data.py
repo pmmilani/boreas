@@ -300,6 +300,4 @@ class ProcessedRANS:
         # Fill in places where should_use is true with the predicted Prt_ML:
         Prt_full[self.should_use] = Prt       
         
-        return Prt_full
-        
-    
+        return Prt_full    

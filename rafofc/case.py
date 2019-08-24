@@ -145,28 +145,28 @@ class Case:
         
         # Load the file. Print number of zones/variables as sanity check
         print("Loading Tecplot dataset...")
-        self.__dataset = tecplot.data.load_tecplot(filepath, 
+        self._tpdataset = tecplot.data.load_tecplot(filepath, 
                                 read_data_option=tecplot.constant.ReadDataOption.Replace)
         print("Tecplot file loaded successfully! "
-               + "It contains {} zones and ".format(self.__dataset.num_zones) 
-               + "{} variables".format(self.__dataset.num_variables))
+               + "It contains {} zones and ".format(self._tpdataset.num_zones) 
+               + "{} variables".format(self._tpdataset.num_variables))
                
         # Extracting zone. Print zone name and number of cells/nodes as sanity check
         if zone is None:
             print("All operations will be performed on zone 0 (default)")
-            self.__zone = self.__dataset.zone(0)            
+            self._zone = self._tpdataset.zone(0)            
         else:
             print("All operations will be performed on zone {}".format(zone))
-            self.__zone = self.__dataset.zone(zone)
+            self._zone = self._tpdataset.zone(zone)
             
-        print('Zone "{}" has {} cells'.format(self.__zone.name, self.__zone.num_elements) 
-              + " and {} nodes".format(self.__zone.num_points))
+        print('Zone "{}" has {} cells'.format(self._zone.name, self._zone.num_elements) 
+              + " and {} nodes".format(self._zone.num_points))
         
         # Initializes a dictionary containing correct names for this dataset
         self.initializeVarNames(use_default_names)
         
         # Initialize proc_data as None
-        self.__proc_data = None
+        self._proc_data = None
 
     
     def initializeVarNames(self, use_default_names=False):
@@ -183,7 +183,7 @@ class Case:
         """
         
         # this dictionary maps from key to the actual variable name in Tecplot file
-        self.__var_names = {} 
+        self._var_names = {} 
         
         # These are the keys for the 9 relevant variables we need
         variables = ["U", "V", "W", "Density", "T", "TKE", "epsilon",
@@ -202,23 +202,23 @@ class Case:
             if use_default_names:                
                 
                 # Check default names are valid, otherwise crash
-                assert isVariable(default_names[i], self.__dataset), \
+                assert isVariable(default_names[i], self._tpdataset), \
                       "Default name {} is not a valid variable!".format(default_names[i])
                 
                 # Add default name to dictionary
-                self.__var_names[key] = default_names[i]
+                self._var_names[key] = default_names[i]
             
             # Here, just get a name from the user
             else:
-                self.__var_names[key] = getVarNameFromUser("Enter name for "
+                self._var_names[key] = getVarNameFromUser("Enter name for "
                                                            + "{} variable: ".format(key), 
-                                                            self.__dataset, 
+                                                            self._tpdataset, 
                                                             default_names[i])
                                                             
         # Finally, assert X, Y, Z are valid variables:
-        assert isVariable("X", self.__dataset), 'Variable "X" not found in the dataset!'
-        assert isVariable("Y", self.__dataset), 'Variable "Y" not found in the dataset!'
-        assert isVariable("Z", self.__dataset), 'Variable "Z" not found in the dataset!'
+        assert isVariable("X", self._tpdataset), 'Variable "X" not found in the dataset!'
+        assert isVariable("Y", self._tpdataset), 'Variable "Y" not found in the dataset!'
+        assert isVariable("Z", self._tpdataset), 'Variable "Z" not found in the dataset!'
             
     
     def normalize(self, deltaT=None):
@@ -261,9 +261,9 @@ class Case:
         for var in variables:
         
             # Strings below are Fortran-style equations that the Tecplot engine takes
-            ddx_eqn = "{ddx_" + var + "} = ddx({" + self.__var_names[var] + "})"
-            ddy_eqn = "{ddy_" + var + "} = ddy({" + self.__var_names[var] + "})"
-            ddz_eqn = "{ddz_" + var + "} = ddz({" + self.__var_names[var] + "})"
+            ddx_eqn = "{ddx_" + var + "} = ddx({" + self._var_names[var] + "})"
+            ddy_eqn = "{ddy_" + var + "} = ddy({" + self._var_names[var] + "})"
+            ddz_eqn = "{ddz_" + var + "} = ddz({" + self._var_names[var] + "})"
             
             print("Differentiating {}...    ".format(var), end="", flush=True)
             
@@ -321,18 +321,18 @@ class Case:
             if use_default_derivative_names:
             
                 # Check default names are valid, otherwise crash
-                assert isVariable(default_names[i], self.__dataset), \
+                assert isVariable(default_names[i], self._tpdataset), \
                       "Default name {} is not a valid variable!".format(default_names[i])
                                 
                 # Add default names to dictionary
-                self.__var_names[var] = default_names[i]                
+                self._var_names[var] = default_names[i]                
             
             else: 
                 
                 # Here, we ask the user for each derivative's name
-                self.__var_names[var] = getVarNameFromUser("Enter name for " 
+                self._var_names[var] = getVarNameFromUser("Enter name for " 
                                                            + "{} variable: ".format(var),
-                                                           self.__dataset,
+                                                           self._tpdataset,
                                                            default_names[i]) 
                                                                   
                                                                   
@@ -379,27 +379,27 @@ class Case:
             if os.path.isfile(processed_load_path):
                 print("A valid path for rans_data was supplied. "
                       + "It will be read from disk...", end="", flush=True)
-                self.__proc_rans = joblib.load(processed_load_path)
-                x = self.__proc_rans.x_features
+                self._proc_data = joblib.load(processed_load_path)
+                x = self._proc_data.x_features
                 print(" Done")
                 return x 
         
         #---- These next four commands initialize the ProcessedRANS and do all the necessary
         #---- processing to obtain features.
         # Initialize the processed RANS dataset (numpy arrays only) with num_elements.
-        self.__proc_rans = ProcessedRANS(self.__zone.num_elements, self.deltaT)
+        self._proc_data = ProcessedRANS(self._zone.num_elements, self.deltaT)
         # Fill the ProcessedRANS instance with relevant quantities from this zone
-        self.__proc_rans.fillAndNonDimensionalize(self.__zone, self.__var_names)
+        self._proc_data.fillAndNonDimensionalize(self._zone, self._var_names)
         # Determine which points should be used
-        self.__proc_rans.determineShouldUse(threshold) 
+        self._proc_data.determineShouldUse(threshold) 
         # Produces features used for ML prediction        
-        x = self.__proc_rans.produceFeatures()       
+        x = self._proc_data.produceFeatures()       
         #---- Finished calculating rans_data       
         
-        # If a dump path is supplied, then save self.__proc_rans to disk
+        # If a dump path is supplied, then save self._proc_data to disk
         if processed_dump_path:
             print("Saving rans_data to disk...")
-            joblib.dump(self.__proc_rans, processed_dump_path, protocol=2)           
+            joblib.dump(self._proc_data, processed_dump_path, protocol=2)           
         
         # return the extracted arrays
         return x
@@ -414,7 +414,7 @@ class Case:
         """
         
         print("Saving .plt file to {}...".format(path), end="", flush=True)
-        tecplot.data.save_tecplot_plt(filename=path, dataset=self.__dataset)
+        tecplot.data.save_tecplot_plt(filename=path, dataset=self._tpdataset)
         print(" Done")
         
         
@@ -422,7 +422,6 @@ class TestCase(Case):
     """
     This class is holds the information of a single test case (just RANS simulation).
     """
-
     
     def addPrtML(self, Prt):
         """
@@ -439,23 +438,23 @@ class TestCase(Case):
         """
     
         # First, create a diffusivity that is dimensional and available at every cell
-        Prt_full = self.__proc_rans.fillPrt(Prt)
+        Prt_full = self._proc_data.fillPrt(Prt)
         
         # Creates a variable called "Prt_ML" and "should_use" everywhere
-        self.__dataset.add_variable(name="Prt_ML",
+        self._tpdataset.add_variable(name="Prt_ML",
                                     dtypes=tecplot.constant.FieldDataType.Float,
                                     locations=tecplot.constant.ValueLocation.CellCentered)
-        self.__dataset.add_variable(name="should_use",
+        self._tpdataset.add_variable(name="should_use",
                                     dtypes=tecplot.constant.FieldDataType.Int16,
                                     locations=tecplot.constant.ValueLocation.CellCentered)
         
         # Add alpha_t_full to the zone
-        assert self.__zone.num_elements == Prt_full.size, \
+        assert self._zone.num_elements == Prt_full.size, \
                                 "Prt_full has wrong number of entries"
-        self.__zone.values("Prt_ML")[:] = Prt_full.tolist()
+        self._zone.values("Prt_ML")[:] = Prt_full.tolist()
 
         # Add should_use to the zone                
-        self.__zone.values("should_use")[:] = self.__proc_rans.should_use.tolist()           
+        self._zone.values("should_use")[:] = self._proc_data.should_use.tolist()           
     
     
     def fetchVariablesToWrite(self, variable_list):
@@ -476,12 +475,12 @@ class TestCase(Case):
         """
     
         # number of points that will be written
-        N = self.__zone.num_elements
+        N = self._zone.num_elements
         
         # First, get x,y,z from the cell center
-        x = self.__zone.values("X_cell")[:]
-        y = self.__zone.values("Y_cell")[:]
-        z = self.__zone.values("Z_cell")[:]
+        x = self._zone.values("X_cell")[:]
+        y = self._zone.values("Y_cell")[:]
+        z = self._zone.values("Z_cell")[:]
         
         assert (len(x) == N and len(y) == N and len(z) == N), \
                                 "x,y,z variables have wrong number of entries!"
@@ -491,10 +490,10 @@ class TestCase(Case):
         for var_name in variable_list:
         
             # Check names are valid, otherwise crash
-            assert isVariable(var_name, self.__dataset), \
+            assert isVariable(var_name, self._tpdataset), \
                "{} is not a valid variable to write in interp/csv file!".format(var_name)
                       
-            var = self.__zone.values(var_name)[:]
+            var = self._zone.values(var_name)[:]
             
             # Check variable has correct length
             assert len(var) == N, \
@@ -613,12 +612,25 @@ class TrainingCase(Case):
     """
     
     def __init__(self, filepath, zone=None, use_default_names=False):
+        """
+        This initializes a TrainingCase, where the names for u'c' vector are also collected.
+        """
         super().__init__(filepath, zone, use_default_names) # performs regular initialization
         
         self.initializeVarNames_uc(use_default_names); # adds extra variable names
     
         
-    def initializeVarNames_uc(use_default_names):    
+    def initializeVarNames_uc(self, use_default_names=False):
+        """
+        Completes the dictionary containing the string names with u'c' variables.
+        
+        This function adds extra names to the existing dictionary of variables->names
+        related to the training set, where we need u'c' information
+        
+        use_default_names -- optional, whether to use default names (from Fluent) to 
+                             fetch variables in the .plt file. Must be false unless all 
+                             variables of interest in Tecplot have the default name.
+        """
                 
         # These are the keys for the 3 extra variables we need for training
         variables = ["uc", "vc", "wc"]
@@ -633,17 +645,17 @@ class TrainingCase(Case):
             if use_default_names:                
                 
                 # Check default names are valid, otherwise crash
-                assert isVariable(default_names[i], self.__dataset), \
+                assert isVariable(default_names[i], self._tpdataset), \
                       "Default name {} is not a valid variable!".format(default_names[i])
                 
                 # Add default name to dictionary
-                self.__var_names[key] = default_names[i]
+                self._var_names[key] = default_names[i]
             
             # Here, just get a name from the user
             else:
-                self.__var_names[key] = getVarNameFromUser("Enter name for "
+                self._var_names[key] = getVarNameFromUser("Enter name for "
                                                            + "{} variable: ".format(key), 
-                                                            self.__dataset, 
+                                                            self._tpdataset, 
                                                             default_names[i])
         
             

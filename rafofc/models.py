@@ -6,7 +6,7 @@ model that will make predictions on a turbulent diffusivity
 
 
 # ------------ Import statements
-from sklearn.externals import joblib # joblib is used to load trained models from disk
+import joblib # joblib is used to load trained models from disk
 from sklearn.ensemble import RandomForestRegressor
 import os
 import pkg_resources

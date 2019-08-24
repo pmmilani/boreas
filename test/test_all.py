@@ -9,7 +9,7 @@ import numpy as np
 from rafofc.main import printInfo, applyMLModel
 from rafofc.models import MLModel
 from rafofc.processed_data import ProcessedRANS
-from sklearn.externals import joblib
+import joblib
 
 
 def test_print_info():

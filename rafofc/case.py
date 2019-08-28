@@ -333,8 +333,8 @@ class Case:
                                                            default_names[i]) 
                                                                   
                                                                   
-    def extractMLFeatures(self, threshold=1e-3, features_load_path=None, 
-                          features_dump_path=None, clean_features=True):
+    def extractMLFeatures(self, threshold=None, clean_features=True, 
+                          features_load_path=None, features_dump_path=None):
         """
         Extract quantities from the tecplot file into numpy arrays.
         
@@ -345,8 +345,11 @@ class Case:
         
         Arguments:
         threshold -- magnitude cut-off for the temperature scalar gradient: only use 
-                     points with (dimensionless) magnitude higher than this. Default is 
-                     1e-3. Only change this if you know what you are doing.
+                     points with (dimensionless) magnitude higher than this. Default is
+                     None (which means the value in constants.py is employed).
+        clean_features -- optional keyword argument. If this is True, we clean the
+                          features that are returned, and the should_use array is
+                          modified accordingly.
         features_load_path -- optional keyword argument. If this is not None, this 
                               function will attempt to read rans_data from disk and
                               restore it instead of recalculating everything. The path
@@ -356,10 +359,7 @@ class Case:
                               rans_data for the current dataset and then save it to
                               disk (to path specified by features_dump_path). Use it
                               to avoid recalculating features (since it can be an 
-                              expensive operation)
-        clean_features -- optional keyword argument. If this is True, we clean the
-                          features that are returned, and the should_use array is
-                          modified accordingly.
+                              expensive operation)        
         
         Returns:
         x_features -- a numpy array containing the features for prediction in the ML
@@ -385,6 +385,8 @@ class Case:
         mean_qts = processing.MeanFlowQuantities(self._zone, self.var_names, self.deltaT0)
         
         # Determine which points should be used, shape (n_cells)
+        if threshold is None:
+            threshold = constants.THRESHOLD
         self.should_use = processing.calculateShouldUse(mean_qts, threshold)
         
         # Calculate features, shape (n_useful, N_FEATURES)
@@ -398,13 +400,48 @@ class Case:
         # If a dump path is supplied, then save features to disk to disk
         if features_dump_path:
             print("Saving features to disk...", end="", flush=True)
-            joblib.dump([self.x_features, self.should_use], 
-                        features_dump_path, protocol=2)
+            joblib.dump([self.x_features, self.should_use], features_dump_path, 
+                        compress=constants.COMPRESS, protocol=constants.PROTOCOL)
             print(" Done")
         
         # return the extracted feature array
         return self.x_features
          
+    
+    def addPrt(self, Prt, varname):
+        """
+        Adds Prt and should_use as variables in the Tecplot file.
+        
+        This method takes in a diffusivity array alpha_t that was predicted by the 
+        machine learning model and adds that as a variable to the Tecplot file. It
+        also adds should_use, which is very useful for visualization. should_use is 1
+        where we use the ML model and 0 where we use the default Reynolds analogy.
+        
+        Arguments:
+        Prt -- numpy array shape (num_useful, ) with the turbulent Prandtl number
+               (Pr_t) predicted at each cell.
+        varname -- string with the name for the new Prt variable in the dataset.
+        """
+    
+        # First, create a diffusivity that is dimensional and available at every cell
+        Prt_full = processing.fillPrt(Prt, self.should_use)
+        
+        # Creates a variable called "Prt_ML" and "should_use" everywhere
+        self._tpdataset.add_variable(name=varname,
+                                    dtypes=tecplot.constant.FieldDataType.Float,
+                                    locations=tecplot.constant.ValueLocation.CellCentered)
+        self._tpdataset.add_variable(name="should_use",
+                                    dtypes=tecplot.constant.FieldDataType.Int16,
+                                    locations=tecplot.constant.ValueLocation.CellCentered)
+        
+        # Add Pr_t_full to the zone
+        assert self._zone.num_elements == Prt_full.size, \
+                                "Prt_full has wrong number of entries"
+        self._zone.values("varname")[:] = Prt_full.tolist()
+
+        # Add should_use to the zone                
+        self._zone.values("should_use")[:] = self.should_use.tolist()           
+        
         
     def saveDataset(self, path):
         """
@@ -422,41 +459,7 @@ class Case:
 class TestCase(Case):
     """
     This class is holds the information of a single test case (just RANS simulation).
-    """
-    
-    def addPrtML(self, Prt):
-        """
-        Adds Prt_ML and should_use as variables in the Tecplot file.
-        
-        This method takes in a diffusivity array alpha_t that was predicted by the 
-        machine learning model and adds that as a variable to the Tecplot file. It
-        also adds should_use, which is very useful for visualization. should_use is 1
-        where we use the ML model and 0 where we use the default Reynolds analogy.
-        
-        Arguments:
-        Prt -- numpy array shape (num_useful, ) with the turbulent Prandtl number
-               (Pr_t) predicted at each cell. 
-        """
-    
-        # First, create a diffusivity that is dimensional and available at every cell
-        Prt_full = processing.fillPrt(Prt, self.should_use)
-        
-        # Creates a variable called "Prt_ML" and "should_use" everywhere
-        self._tpdataset.add_variable(name="Prt_ML",
-                                    dtypes=tecplot.constant.FieldDataType.Float,
-                                    locations=tecplot.constant.ValueLocation.CellCentered)
-        self._tpdataset.add_variable(name="should_use",
-                                    dtypes=tecplot.constant.FieldDataType.Int16,
-                                    locations=tecplot.constant.ValueLocation.CellCentered)
-        
-        # Add Pr_t_full to the zone
-        assert self._zone.num_elements == Prt_full.size, \
-                                "Prt_full has wrong number of entries"
-        self._zone.values("Prt_ML")[:] = Prt_full.tolist()
-
-        # Add should_use to the zone                
-        self._zone.values("should_use")[:] = self.should_use.tolist()           
-    
+    """   
     
     def fetchVariablesToWrite(self, variable_list):
         """
@@ -563,7 +566,7 @@ class TestCase(Case):
             for var in vars: 
                 writeValues(interp_file, var)
 
-        print(" Done")
+        print(" Done!")
         
         
     def createCsvFile(self, path, variable_list, outname_list):
@@ -612,7 +615,7 @@ class TestCase(Case):
                     
                 csv_file.write("\n")                
 
-        print(" Done")
+        print(" Done!")
 
 
 
@@ -637,6 +640,7 @@ class TrainingCase(Case):
         This function adds extra names to the existing dictionary of variables->names
         related to the training set, where we need u'c' information
         
+        Arguments:
         use_default_names -- optional, whether to use default names (from Fluent) to 
                              fetch variables in the .plt file. Must be false unless all 
                              variables of interest in Tecplot have the default name.
@@ -667,5 +671,78 @@ class TrainingCase(Case):
                                                            + "{} variable: ".format(key), 
                                                             self._tpdataset, 
                                                             default_names[i])
+    
+    
+    def extractGamma(self, prt_cap=None, use_correction=False):
+        """
+        Extracts the value of 1.0/Pr_t that will be used as a label for regression
         
-            
+        Arguments:
+        prt_cap -- optional, contains the (symmetric) cap on the value of Pr_t. If None,
+                   then use the value in constants.py. If this value is 100, for example,
+                   then 0.01 < Pr_t < 100, and values outside of this range are capped.
+        use_correction -- optional. If True, use the correction defined in 
+                          Milani, Ling, Eaton (JTM 2020). That correction only makes
+                          sense if training data is on a fixed reference frame (it breaks
+                          Galilean invariance), so it is turned off by default. However,
+                          it can improve results in some cases.
+        """
+        
+        # This contains all info we need as arrays. The arrays are already
+        # filtered according to should_use, so they have shape (n_useful,...)
+        # This means that this function can only run after extractMLFeatures
+        mean_qts = processing.MeanFlowQuantities_Prt(self._zone, self.var_names,
+                                                     self.should_use)
+        
+        # set to constants.py value if None is provided
+        if prt_cap is None:
+            prt_cap = constants.PRT_CAP
+        
+        self.gamma = processing.calculateGamma(mean_qts, prt_cap, use_correction)
+        
+        return self.gamma
+    
+    
+    def saveTrainingFeatures(self, filename, downsample=None):
+        """
+        Saves a .pckl file with the features and labels for training. 
+        
+        Arguments:
+        filename -- the location/name of the file where we save the features
+                    and labels
+        downsample -- optional, number that controls how we downsample the data
+                      before saving it to disk. If None (default), it will read
+                      the number from constants.py. If this number is more than 1,
+                      then it represents the number of examples we want to save; if
+                      it is less than 1, it represents the ratio of all training 
+                      examples we want to save.
+        """
+        
+        # Implements downsampling. If downsample is greater than 1, we assume it's the
+        # number of elements to use. If downsample is smaller than 1, it's the ratio
+        # of elements to use.
+        
+        print("Saving features/labels to disk in file {}...".format(filename),
+              end="", flush=True)
+              
+        n_total = self.gamma.shape[0]
+        idx_tot = np.arange(n_total)
+        np.random.shuffle(idx_tot)
+        
+        if downsample is None:
+            downsample = constants.DOWNSAMPLE        
+        if int(downsample) > 1:
+            n_take = int(downsample)
+        else:
+            n_take = int(downsample * n_total)
+        
+        assert n_take <= n_total, "Cannot downsample to have more points!"
+        idx = idx_tot[0:n_take]
+        
+        # Use joblib to save it to disk
+        save_var = [self.x_features[idx,:], self.gamma[idx]]
+        joblib.dump(save_var, filename, compress=constants.COMPRESS,
+                    protocol=constants.PROTOCOL)
+        
+        print(" Done!")              
+        

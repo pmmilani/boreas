@@ -270,7 +270,52 @@ def fillPrt(Prt, should_use):
     # Fill in places where should_use is True with the predicted Prt_ML:
     Prt_full[should_use] = Prt       
     
-    return Prt_full    
+    return Prt_full
+
+    
+def calculateGamma(mfq, prt_cap, use_correction):
+    """
+    This function calculates gamma = 1/Pr_t from the training data
+    
+    Arguments:
+    mfq -- instance of MeanFlowQuantities class containing necessary arrays to
+              calculate should_use
+    prt_cap -- number that determines max/min values for Pr_t (and gamma)
+    use_correction -- boolean, which determines whether correction for gamma
+                      should be employed.
+                 
+    Returns:
+    gamma -- array of shape (n_useful, ) that contains the label that will
+             be used to train the regression algorithm.
+    """
+    
+    print("Calculating 1/Pr_t from training data...", end="", flush=True)
+    
+    # Here, calculate gamma = 1.0/log(Pr_t) from u'c' data.
+    if use_correction:        
+        # F is a factor that weighs all three directions unequally. 
+        # It gives higher weight when the mean velocity in that direction is lower.
+        # See paper for equation.
+        F1 = (np.sqrt(np.sum(mfq.uc**2, axis=1, keepdims=True))
+              + np.abs(mfq.U*np.expand_dims(mfq.T, axis=1)))
+        F = 1.0/F1 
+        top = np.sum(F*mfq.uc*mfq.gradT, axis=1)
+        bottom = np.sum(F*mfq.gradT*mfq.gradT, axis=1)
+        alpha_t = (-1.0)*top/bottom
+        gamma = alpha_t*(mfq.rho/mfq.mut)
+    else:
+        top = np.sum(mfq.uc*mfq.gradT, axis=1)
+        bottom = np.sum(mfq.gradT*mfq.gradT, axis=1)
+        alpha_t = (-1.0)*top/bottom            
+        gamma = alpha_t*(mfq.rho/mfq.mut)    
+    
+    # Clip extracted Prt value
+    gamma[gamma > prt_cap] = prt_cap
+    gamma[gamma < 1.0/prt_cap] = 1.0/prt_cap
+    
+    print(" Done!")
+    
+    return gamma
     
     
 class MeanFlowQuantities:
@@ -288,6 +333,7 @@ class MeanFlowQuantities:
         zone -- tecplot.data.zone containing the fluid zone, where the variables live
         var_names -- dictionary mapping default names to the actual variable names in the
                      present .plt file
+        deltaT0 -- scale to non-dimensionalize the temperature gradient
         """       
         
         self.n_cells = zone.num_elements # number of cell centers
@@ -357,3 +403,68 @@ class MeanFlowQuantities:
         assert (self.mut >= 0).all(), "Found negative entries for mut!"
         assert (self.mu >= 0).all(), "Found negative entries for mu!"
         assert (self.d >= 0).all(), "Found negative entries for d!"
+        
+
+class MeanFlowQuantities_Prt:
+    """
+    This class holds numpy arrays that correspond to the different mean flow 
+    quantities of the dataset that are needed to calculate the "true" Pr_t at
+    training time.
+    """    
+    
+    def __init__(self, zone, var_names, should_use):    
+        """
+        Constructor for MeanFlowQuantities class.
+        
+        Arguments:
+        zone -- tecplot.data.zone containing the fluid zone, where the variables live
+        var_names -- dictionary mapping default names to the actual variable names in the
+                     present .plt file
+        should_use -- boolean array, indicating which cells have large enough
+                      gradient to work with. Used as a mask on the full dataset.   
+        """       
+        
+        self.n_useful = np.sum(should_use) # number of useful cells
+        
+        # Mean velocity: U, V, W
+        self.U = np.empty((self.n_useful, 3)) # this is a 2D array of size Nx3
+        self.U[:, 0] = np.asarray(zone.values(var_names["U"])[:])[should_use]
+        self.U[:, 1] = np.asarray(zone.values(var_names["V"])[:])[should_use]
+        self.U[:, 2] = np.asarray(zone.values(var_names["W"])[:])[should_use]
+        
+        # Temperature Gradients: dTdx, dTdy, dTdz
+        self.gradT = np.empty((self.n_useful, 3)) # this is a 2D array of size Nx3
+        self.gradT[:, 0] = np.asarray(zone.values(var_names["ddx_T"])[:])[should_use]
+        self.gradT[:, 1] = np.asarray(zone.values(var_names["ddy_T"])[:])[should_use]
+        self.gradT[:, 2] = np.asarray(zone.values(var_names["ddz_T"])[:])[should_use]
+        
+        # u'c' vector
+        self.uc = np.empty((self.n_useful, 3)) # this is a 2D array of size Nx3
+        self.uc[:, 0] = np.asarray(zone.values(var_names["uc"])[:])[should_use]
+        self.uc[:, 1] = np.asarray(zone.values(var_names["vc"])[:])[should_use]
+        self.uc[:, 2] = np.asarray(zone.values(var_names["wc"])[:])[should_use]
+        
+        # Other scalars: T, rho, mu_t
+        self.T  = np.asarray(zone.values(var_names["T"])[:])[should_use]
+        self.rho  = np.asarray(zone.values(var_names["Density"])[:])[should_use]
+        self.mut = np.asarray(zone.values(var_names["turbulent viscosity"])[:])[should_use]
+        
+        # Check that all variables have the correct size and range
+        self.sanityCheck()
+        
+        
+    def sanityCheck(self):
+        """
+        This function contains assertions to check the current state of the dataset
+        """        
+        
+        assert self.T.size == self.n_useful, \
+               "Wrong number of entries for T"
+        assert self.rho.size == self.n_useful, \
+               "Wrong number of entries for rho"
+        assert self.mut.size == self.n_useful, \
+               "Wrong number of entries for mu_t"
+        
+        assert (self.rho >= 0).all(), "Found negative entries for rho!"
+        assert (self.mut >= 0).all(), "Found negative entries for mut!"
+        

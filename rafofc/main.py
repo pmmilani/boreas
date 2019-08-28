@@ -40,7 +40,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                  deltaT0 = None, 
                  use_default_var_names = False, use_default_derivative_names = True,
                  calc_derivatives = True, write_derivatives = True, 
-                 threshold = 1e-3, clean_features = True, 
+                 threshold = None, clean_features = True, 
                  features_load_path = None, features_dump_path = None,
                  ip_file_path = None, csv_file_path = None,
                  variables_to_write = ["Prt_ML"], outnames_to_write = ["uds-1"],                 
@@ -91,9 +91,10 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                          save results to disk as soon as they are calculated.    
     threshold -- optional argument. This variable determines the threshold for 
                  (non-dimensional) temperature gradient below which we throw away a 
-                 point. Default value is 1e-3. For temperature gradient less than that,
-                 we use the Reynolds analagoy (with Pr_t=0.85). For gradients larger than
-                 that, we use the ML model.
+                 point. If None, use the value in constants.py (default value is 1e-3).
+                 For temperature gradient less than that, we use the Reynolds analogy
+                 (with fixed Pr_t). For gradients larger than that, we use the 
+                 model.
     clean_features -- optional argument. This determines whether we should remove outlier
                       points from the dataset before applying the model. This is measured
                       by the standard deviation of points around the mean.
@@ -151,10 +152,9 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
         print("Derivatives already calculated!")
         dataset.addDerivativeNames(use_default_derivative_names)
     
-    # This line processes the dataset, create rans_data (a class holding all variables
-    # as numpy arrays), and extracts features for the ML step (the latter can take a
-    # time). features_load_path and features_dump_path can be not None to make the 
-    # method load/save the processed quantities from disk.
+    # This line processes the dataset and extracts features for the ML step which
+    # can take a long time. features_load_path and features_dump_path can be not
+    # set to make the method load/save the processed quantities from disk.
     x = dataset.extractMLFeatures(threshold=threshold, 
                                   features_load_path=features_load_path,
                                   features_dump_path=features_dump_path,
@@ -167,7 +167,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     
     # Add Prt_ML as a variable in tecplot, create interp/csv files, and save new
     # tecplot file with all new variables.
-    dataset.addPrtML(Prt_ML)    
+    dataset.addPrt(Prt_ML, "Prt_ML")    
     if ip_file_path is not None:
         dataset.createInterpFile(ip_file_path, variables_to_write, outnames_to_write)    
     if csv_file_path is not None:
@@ -175,14 +175,23 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     dataset.saveDataset(tecplot_out_path)
 
 
-def trainMLModel():
+def trainMLModel(tecplot_in_path, *, 
+                 data_path=None,  
+                 zone = None, 
+                 deltaT0 = None, 
+                 use_default_var_names = False, use_default_derivative_names = True,
+                 calc_derivatives = True, write_derivatives = True, 
+                 threshold = None, clean_features = True, 
+                 features_load_path = None, features_dump_path = None,
+                 prt_cap = None, gamma_correction = False,
+                 downsample=None, tecplot_out_path=None):
 
     # Initialize dataset and get scales for non-dimensionalization. The default behavior
     # is to ask the user for the names and the scales. Passing keyword arguments to this
     # function can be done to go around this behavior
     dataset = TrainingCase(tecplot_in_path, zone=zone, 
-                        use_default_names=use_default_var_names)
-    dataset.normalize(deltaT=deltaT)
+                           use_default_names=use_default_var_names)
+    dataset.normalize(deltaT0=deltaT0)
     
     # If this flag is True (default) calculate the derivatives and save the result to
     # disk (since it takes a while to do that...)
@@ -193,3 +202,24 @@ def trainMLModel():
     else:
         print("Derivatives already calculated!")
         dataset.addDerivativeNames(use_default_derivative_names)
+    
+    # This line processes the dataset and extracts features for the ML step which
+    # can take a long time. features_load_path and features_dump_path can be not
+    # set to make the method load/save the processed quantities from disk.
+    _ = dataset.extractMLFeatures(threshold=threshold, 
+                                  features_load_path=features_load_path,
+                                  features_dump_path=features_dump_path,
+                                  clean_features=clean_features)
+    
+    # Now, extract the value of gamma = 1/Prt
+    gamma = dataset.extractGamma(prt_cap, gamma_correction)
+    
+    # Saves joblib file to disk with features/labels for this dataset
+    if data_path is None:
+        data_path = tecplot_in_path[0:-4] + "_trainingdata.pckl" # default name
+    dataset.saveTrainingFeatures(data_path, downsample)
+    
+    # Write the Tecplot data to disk with the extracted Prt_LES for sanity check
+    if tecplot_out_path is not None:
+        dataset.addPrt(1.0/gamma, "Prt_LES")
+        dataset.saveDataset(tecplot_out_path)  

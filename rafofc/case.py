@@ -10,7 +10,6 @@ import timeit # for timing the derivative
 import tecplot
 import os
 import numpy as np
-from rafofc.processed_data import ProcessedRANS
 from rafofc import processing
 from rafofc import constants
 

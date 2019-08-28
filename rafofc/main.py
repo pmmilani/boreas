@@ -8,7 +8,7 @@ implements all the functionality directly available to the user.
 import numpy as np
 from pkg_resources import get_distribution
 from rafofc.models import MLModel
-from rafofc.case import TestCase
+from rafofc.case import TestCase, TrainingCase
 from rafofc import constants
 
 def printInfo():
@@ -37,11 +37,11 @@ def printInfo():
     
 def applyMLModel(tecplot_in_path, tecplot_out_path, *,  
                  zone = None, 
-                 deltaT = None, 
+                 deltaT0 = None, 
                  use_default_var_names = False, use_default_derivative_names = True,
                  calc_derivatives = True, write_derivatives = True, 
-                 threshold = 1e-3, 
-                 processed_load_path = None, processed_dump_path = None,
+                 threshold = 1e-3, clean_features = True, 
+                 features_load_path = None, features_dump_path = None,
                  ip_file_path = None, csv_file_path = None,
                  variables_to_write = ["Prt_ML"], outnames_to_write = ["uds-1"],                 
                  ml_model_path = None):
@@ -58,9 +58,9 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     zone -- optional argument. The zone where the flow field solution is saved in 
             Tecplot. By default, it is zone 0. This can be either a string (with the 
             zone name) or an integer with the zone index.    
-    deltaT -- optional argument. Temperature scale (Tmax - Tmin) that will be used to 
-              non-dimensionalize the dataset. If it is not provided (default behavior),
-              the user will be prompted to enter an appropriate number.    
+    deltaT0 -- optional argument. Temperature scale (Tmax - Tmin) that will be used to 
+               non-dimensionalize the dataset. If it is not provided (default behavior),
+               the user will be prompted to enter an appropriate number.    
     use_default_var_names -- optional argument. Boolean flag (True/False) that determines
                              whether default Fluent names will be used to fetch variables
                              in the Tecplot dataset. If the flag is False (default 
@@ -93,17 +93,19 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                  (non-dimensional) temperature gradient below which we throw away a 
                  point. Default value is 1e-3. For temperature gradient less than that,
                  we use the Reynolds analagoy (with Pr_t=0.85). For gradients larger than
-                 that, we use the ML model.                 
-    processed_load_path -- optional argument. If this is supplied, then the function will
-                           try to load the rans_data class from disk instead of 
+                 that, we use the ML model.
+    clean_features -- optional argument. This determines whether we should remove outlier
+                      points from the dataset before applying the model. This is measured
+                      by the standard deviation of points around the mean.
+    features_load_path -- optional argument. If this is supplied, then the function will
+                           try to load the features from disk instead of 
                            processing the tecplot file all over again. Since calculating
                            the features can take a while for large datasets, this can be 
                            useful to speed up repetitions.                           
-    processed_dump_path -- optional argument. If this is provided and we processed the
+    features_dump_path -- optional argument. If this is provided and we processed the
                            tecplot data from scratch (i.e. we calculated the features), 
-                           then the function will save the processed data (in proc_rans)
-                           to disk, so it is much faster to perform the same computations
-                           again later.
+                           then the function will save the features to disk, so it is 
+                           much faster to perform the same computations again later.
     ip_file_path -- optional argument. String containing the path to which the
                     interpolation file (which is read by ANSYS Fluent) will be saved. If
                     this argument is None (by default), then no interpolation file is
@@ -137,7 +139,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     # function can be done to go around this behavior
     dataset = TestCase(tecplot_in_path, zone=zone, 
                         use_default_names=use_default_var_names)
-    dataset.normalize(deltaT=deltaT)
+    dataset.normalize(deltaT0=deltaT0)
     
     # If this flag is True (default) calculate the derivatives and save the result to
     # disk (since it takes a while to do that...)
@@ -151,11 +153,12 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     
     # This line processes the dataset, create rans_data (a class holding all variables
     # as numpy arrays), and extracts features for the ML step (the latter can take a
-    # time). processed_load_path and processed_dump_path can be not None to make the 
+    # time). features_load_path and features_dump_path can be not None to make the 
     # method load/save the processed quantities from disk.
     x = dataset.extractMLFeatures(threshold=threshold, 
-                                  processed_load_path=processed_load_path,
-                                  processed_dump_path=processed_dump_path)
+                                  features_load_path=features_load_path,
+                                  features_dump_path=features_dump_path,
+                                  clean_features=clean_features)
     
     # Initialize the ML model and use it for prediction. If ml_model_path is None, just
     # load the default model from disk. 

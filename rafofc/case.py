@@ -11,6 +11,7 @@ import tecplot
 import os
 import numpy as np
 from rafofc.processed_data import ProcessedRANS
+from rafofc import processing
 from rafofc import constants
 
 
@@ -81,7 +82,7 @@ def isVariable(name, dataset):
     Determines if given string is an existing variable name for a variable in dataset.
     
     This helper function returns True if the given name is a valid name of a variable
-    in the dataset, False otherwise.
+    in the Tecplot file, False otherwise.
     
     Arguments:
     name -- the string that we are testing if it corresponds to a variable name or not
@@ -163,10 +164,7 @@ class Case:
               + " and {} nodes".format(self._zone.num_points))
         
         # Initializes a dictionary containing correct names for this dataset
-        self.initializeVarNames(use_default_names)
-        
-        # Initialize proc_data as None
-        self._proc_data = None
+        self.initializeVarNames(use_default_names)        
 
     
     def initializeVarNames(self, use_default_names=False):
@@ -183,7 +181,7 @@ class Case:
         """
         
         # this dictionary maps from key to the actual variable name in Tecplot file
-        self._var_names = {} 
+        self.var_names = {} 
         
         # These are the keys for the 9 relevant variables we need
         variables = ["U", "V", "W", "Density", "T", "TKE", "epsilon",
@@ -206,11 +204,11 @@ class Case:
                       "Default name {} is not a valid variable!".format(default_names[i])
                 
                 # Add default name to dictionary
-                self._var_names[key] = default_names[i]
+                self.var_names[key] = default_names[i]
             
             # Here, just get a name from the user
             else:
-                self._var_names[key] = getVarNameFromUser("Enter name for "
+                self.var_names[key] = getVarNameFromUser("Enter name for "
                                                            + "{} variable: ".format(key), 
                                                             self._tpdataset, 
                                                             default_names[i])
@@ -221,7 +219,7 @@ class Case:
         assert isVariable("Z", self._tpdataset), 'Variable "Z" not found in the dataset!'
             
     
-    def normalize(self, deltaT=None):
+    def normalize(self, deltaT0=None):
         """
         Collects scales from the user, which are used to non-dimensionalize data.
         
@@ -236,11 +234,11 @@ class Case:
         """
         
         # Read in the five quantities if they are not passed in                
-        if deltaT is None:
-            deltaT = getFloatFromUser("Enter temperature delta (Tmax-Tmin): ")
+        if deltaT0 is None:
+            deltaT0 = getFloatFromUser("Enter temperature delta (Tmax-Tmin): ")
             
         # Set instance variables to hold them
-        self.deltaT = deltaT
+        self.deltaT0 = deltaT0
         
     
     def calculateDerivatives(self):
@@ -261,9 +259,9 @@ class Case:
         for var in variables:
         
             # Strings below are Fortran-style equations that the Tecplot engine takes
-            ddx_eqn = "{ddx_" + var + "} = ddx({" + self._var_names[var] + "})"
-            ddy_eqn = "{ddy_" + var + "} = ddy({" + self._var_names[var] + "})"
-            ddz_eqn = "{ddz_" + var + "} = ddz({" + self._var_names[var] + "})"
+            ddx_eqn = "{ddx_" + var + "} = ddx({" + self.var_names[var] + "})"
+            ddy_eqn = "{ddy_" + var + "} = ddy({" + self.var_names[var] + "})"
+            ddz_eqn = "{ddz_" + var + "} = ddz({" + self.var_names[var] + "})"
             
             print("Differentiating {}...    ".format(var), end="", flush=True)
             
@@ -325,19 +323,19 @@ class Case:
                       "Default name {} is not a valid variable!".format(default_names[i])
                                 
                 # Add default names to dictionary
-                self._var_names[var] = default_names[i]                
+                self.var_names[var] = default_names[i]                
             
             else: 
                 
                 # Here, we ask the user for each derivative's name
-                self._var_names[var] = getVarNameFromUser("Enter name for " 
+                self.var_names[var] = getVarNameFromUser("Enter name for " 
                                                            + "{} variable: ".format(var),
                                                            self._tpdataset,
                                                            default_names[i]) 
                                                                   
                                                                   
-    def extractMLFeatures(self, threshold=1e-3, processed_load_path=None, 
-                          processed_dump_path=None):
+    def extractMLFeatures(self, threshold=1e-3, features_load_path=None, 
+                          features_dump_path=None, clean_features=True):
         """
         Extract quantities from the tecplot file into numpy arrays.
         
@@ -350,59 +348,63 @@ class Case:
         threshold -- magnitude cut-off for the temperature scalar gradient: only use 
                      points with (dimensionless) magnitude higher than this. Default is 
                      1e-3. Only change this if you know what you are doing.
-        processed_load_path -- optional keyword argument. If this is not None, this 
-                               function will attempt to read rans_data from disk and
-                               restore it instead of recalculating everything. The path
-                               where rans_data is located is given by rans_data_path.
-        processed_dump_path -- optional keyword argument. If this is not None, and the 
-                               above argument is None, then this method will calculate
-                               rans_data for the current dataset and then save it to
-                               disk (to path specified by processed_dump_path). Use it
-                               to avoid recalculating features (since it can be an 
-                               expensive operation)
+        features_load_path -- optional keyword argument. If this is not None, this 
+                              function will attempt to read rans_data from disk and
+                              restore it instead of recalculating everything. The path
+                              where rans_data is located is given by rans_data_path.
+        features_dump_path -- optional keyword argument. If this is not None, and the 
+                              above argument is None, then this method will calculate
+                              rans_data for the current dataset and then save it to
+                              disk (to path specified by features_dump_path). Use it
+                              to avoid recalculating features (since it can be an 
+                              expensive operation)
+        clean_features -- optional keyword argument. If this is True, we clean the
+                          features that are returned, and the should_use array is
+                          modified accordingly.
         
         Returns:
-        x -- a numpy array containing the features for prediction in the ML step. The 
-             shape should be (n_cells, n_features)
+        x_features -- a numpy array containing the features for prediction in the ML
+                      step. The shape should be (n_useful, n_features)
         """
-        # First, calculate locations of the cell centers (X,Y,Z are usually on the node)
-        tecplot.data.operate.execute_equation('{X_cell} = {X}',
-                              value_location=tecplot.constant.ValueLocation.CellCentered)
-        tecplot.data.operate.execute_equation('{Y_cell} = {Y}',
-                              value_location=tecplot.constant.ValueLocation.CellCentered)
-        tecplot.data.operate.execute_equation('{Z_cell} = {Z}',
-                              value_location=tecplot.constant.ValueLocation.CellCentered)                              
         
-        # If we were passed a valid rans_data_path, restore it from disk and return its 
-        # value of x_features as x 
-        if processed_load_path:
-            if os.path.isfile(processed_load_path):
-                print("A valid path for rans_data was supplied. "
-                      + "It will be read from disk...", end="", flush=True)
-                self._proc_data = joblib.load(processed_load_path)
-                x = self._proc_data.x_features
+        # If we were passed a valid features_load_path, restore features from disk and
+        # return them 
+        if features_load_path:
+            if os.path.isfile(features_load_path):
+                print("A valid path for the features was provided."
+                      + " (path provided: {}) ".format(features_load_path)
+                      + "They will be read from disk...", end="", flush=True)
+                self.x_features, self.should_use = joblib.load(features_load_path)                
                 print(" Done")
-                return x 
+                return self.x_features
+            else:
+                print("Invalid path provided for the features. They will be calculated" 
+                      + " instead. (path provided: {})".format(features_load_path))
+                       
+        #---- This section performs all necessary commands to obtain features
+        # Initialize the class containing appropriate mean flow quantities
+        mean_qts = processing.MeanFlowQuantities(self._zone, self.var_names, self.deltaT0)
         
-        #---- These next four commands initialize the ProcessedRANS and do all the necessary
-        #---- processing to obtain features.
-        # Initialize the processed RANS dataset (numpy arrays only) with num_elements.
-        self._proc_data = ProcessedRANS(self._zone.num_elements, self.deltaT)
-        # Fill the ProcessedRANS instance with relevant quantities from this zone
-        self._proc_data.fillAndNonDimensionalize(self._zone, self._var_names)
-        # Determine which points should be used
-        self._proc_data.determineShouldUse(threshold) 
-        # Produces features used for ML prediction        
-        x = self._proc_data.produceFeatures()       
-        #---- Finished calculating rans_data       
+        # Determine which points should be used, shape (n_cells)
+        self.should_use = processing.calculateShouldUse(mean_qts, threshold)
         
-        # If a dump path is supplied, then save self._proc_data to disk
-        if processed_dump_path:
-            print("Saving rans_data to disk...")
-            joblib.dump(self._proc_data, processed_dump_path, protocol=2)           
+        # Calculate features, shape (n_useful, N_FEATURES)
+        self.x_features = processing.calculateFeatures(mean_qts, self.should_use)
+
+        if clean_features:
+            self.x_features, self.should_use = processing.cleanFeatures(self.x_features,
+                                                                        self.should_use)
+        #---- Finished calculating features       
         
-        # return the extracted arrays
-        return x
+        # If a dump path is supplied, then save features to disk to disk
+        if features_dump_path:
+            print("Saving features to disk...", end="", flush=True)
+            joblib.dump([self.x_features, self.should_use], 
+                        features_dump_path, protocol=2)
+            print(" Done")
+        
+        # return the extracted feature array
+        return self.x_features
          
         
     def saveDataset(self, path):
@@ -438,7 +440,7 @@ class TestCase(Case):
         """
     
         # First, create a diffusivity that is dimensional and available at every cell
-        Prt_full = self._proc_data.fillPrt(Prt)
+        Prt_full = processing.fillPrt(Prt, self.should_use)
         
         # Creates a variable called "Prt_ML" and "should_use" everywhere
         self._tpdataset.add_variable(name="Prt_ML",
@@ -448,13 +450,13 @@ class TestCase(Case):
                                     dtypes=tecplot.constant.FieldDataType.Int16,
                                     locations=tecplot.constant.ValueLocation.CellCentered)
         
-        # Add alpha_t_full to the zone
+        # Add Pr_t_full to the zone
         assert self._zone.num_elements == Prt_full.size, \
                                 "Prt_full has wrong number of entries"
         self._zone.values("Prt_ML")[:] = Prt_full.tolist()
 
         # Add should_use to the zone                
-        self._zone.values("should_use")[:] = self._proc_data.should_use.tolist()           
+        self._zone.values("should_use")[:] = self.should_use.tolist()           
     
     
     def fetchVariablesToWrite(self, variable_list):
@@ -477,7 +479,16 @@ class TestCase(Case):
         # number of points that will be written
         N = self._zone.num_elements
         
-        # First, get x,y,z from the cell center
+        # First, get x,y,z from the cell center (and calculate if it does not exist)
+        if not isVariable("X_cell", self._tpdataset):
+            tecplot.data.operate.execute_equation('{X_cell} = {X}',
+                              value_location=tecplot.constant.ValueLocation.CellCentered)
+        if not isVariable("Y_cell", self._tpdataset):
+            tecplot.data.operate.execute_equation('{Y_cell} = {Y}',
+                              value_location=tecplot.constant.ValueLocation.CellCentered)
+        if not isVariable("Z_cell", self._tpdataset):
+            tecplot.data.operate.execute_equation('{Z_cell} = {Z}',
+                              value_location=tecplot.constant.ValueLocation.CellCentered)
         x = self._zone.values("X_cell")[:]
         y = self._zone.values("Y_cell")[:]
         z = self._zone.values("Z_cell")[:]
@@ -649,11 +660,11 @@ class TrainingCase(Case):
                       "Default name {} is not a valid variable!".format(default_names[i])
                 
                 # Add default name to dictionary
-                self._var_names[key] = default_names[i]
+                self.var_names[key] = default_names[i]
             
             # Here, just get a name from the user
             else:
-                self._var_names[key] = getVarNameFromUser("Enter name for "
+                self.var_names[key] = getVarNameFromUser("Enter name for "
                                                            + "{} variable: ".format(key), 
                                                             self._tpdataset, 
                                                             default_names[i])

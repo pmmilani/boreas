@@ -280,7 +280,7 @@ class Case:
         
         # timing
         toc=timeit.default_timer()
-        print("Taking derivatives took {:.1f} minutes".format((toc - tic)/60.0))
+        print("Taking derivatives took {:.1f} min".format((toc - tic)/60.0))
         
         # calls function below to input correct names for the derivatives
         self.addDerivativeNames(use_default_derivative_names=True)
@@ -370,15 +370,16 @@ class Case:
         # return them 
         if features_load_path:
             if os.path.isfile(features_load_path):
-                print("A valid path for the features was provided."
-                      + " (path provided: {}) ".format(features_load_path)
-                      + "They will be read from disk...", end="", flush=True)
+                print("A valid path for the features was provided "
+                      + "(path provided: {})".format(features_load_path))
+                print("They will be read from disk...", end="", flush=True)
                 self.x_features, self.should_use = joblib.load(features_load_path)                
-                print(" Done")
+                print(" Done!")
                 return self.x_features
             else:
-                print("Invalid path provided for the features. They will be calculated" 
-                      + " instead. (path provided: {})".format(features_load_path))
+                print("Invalid path provided for the features! "
+                      + "(path provided: {})".format(features_load_path))
+                print("Features will be calculated instead".format(features_load_path))
                        
         #---- This section performs all necessary commands to obtain features
         # Initialize the class containing appropriate mean flow quantities
@@ -402,7 +403,7 @@ class Case:
             print("Saving features to disk...", end="", flush=True)
             joblib.dump([self.x_features, self.should_use], features_dump_path, 
                         compress=constants.COMPRESS, protocol=constants.PROTOCOL)
-            print(" Done")
+            print(" Done!")
         
         # return the extracted feature array
         return self.x_features
@@ -437,7 +438,7 @@ class Case:
         # Add Pr_t_full to the zone
         assert self._zone.num_elements == Prt_full.size, \
                                 "Prt_full has wrong number of entries"
-        self._zone.values("varname")[:] = Prt_full.tolist()
+        self._zone.values(varname)[:] = Prt_full.tolist()
 
         # Add should_use to the zone                
         self._zone.values("should_use")[:] = self.should_use.tolist()           
@@ -718,13 +719,14 @@ class TrainingCase(Case):
                       examples we want to save.
         """
         
-        # Implements downsampling. If downsample is greater than 1, we assume it's the
-        # number of elements to use. If downsample is smaller than 1, it's the ratio
-        # of elements to use.
+        
         
         print("Saving features/labels to disk in file {}...".format(filename),
               end="", flush=True)
-              
+        
+        # These lines Implement downsampling. If downsample is greater than 1, we
+        # assume it's the number of elements to use. If downsample is smaller than 1,
+        # it's the ratio of elements to use.
         n_total = self.gamma.shape[0]
         idx_tot = np.arange(n_total)
         np.random.shuffle(idx_tot)

@@ -26,27 +26,7 @@ def calcInvariants(gradU, gradT, n_features):
                   from the gradient tensors 
                   that are used by the ML model to make a prediction at the current point
     
-    # from Smith, same order I have in my notebook page 12. The actual implementation
-    does the same as shown below, but much faster (x 2.5)
-    invariants[0] = np.trace(np.linalg.multi_dot([S, S]))
-    invariants[1] = np.trace(np.linalg.multi_dot([S, S, S]))
-    invariants[2] = np.trace(np.linalg.multi_dot([R, R]))
-    invariants[3] = np.trace(np.linalg.multi_dot([R, R, S]))
-    invariants[4] = np.trace(np.linalg.multi_dot([R, R, S, S]))
-    invariants[5] = np.trace(np.linalg.multi_dot([R, R, S, R, S, S]))
-    invariants[6] = np.linalg.multi_dot([gradT, gradT])
-    invariants[7] = np.linalg.multi_dot([gradT, S, gradT])
-    invariants[8] = np.linalg.multi_dot([gradT, S, S, gradT])
-    invariants[9] = np.linalg.multi_dot([gradT, R, R, gradT])
-    invariants[10] = np.linalg.multi_dot([gradT, R, S, gradT])
-    invariants[11] = np.linalg.multi_dot([gradT, R, S, S, gradT])
-    invariants[12] = np.linalg.multi_dot([gradT, S, R, S, S, gradT])
-    invariants[13] = np.linalg.multi_dot([gradT, R, R, S, gradT])
-    invariants[14] = np.linalg.multi_dot([gradT, R, R, S, S, gradT])
-    invariants[15] = np.linalg.multi_dot([gradT, R, R, S, R, gradT])
-    invariants[16] = np.linalg.multi_dot([gradT, R, S, S, R, R, gradT])
-    invariants[17] = Re_wall
-    invariants[18] = nut/nu
+    # from Zheng (1994)
     """
 
     S = (gradU + np.transpose(gradU)) # symmetric component
@@ -55,32 +35,27 @@ def calcInvariants(gradU, gradT, n_features):
     # For speed, pre-calculate these
     S2 = np.linalg.multi_dot([S, S])
     R2 = np.linalg.multi_dot([R, R])
-    R2_S = np.linalg.multi_dot([R2, S])   
-    R_S2 = np.linalg.multi_dot([R, S2])  
+    S_R2 = np.linalg.multi_dot([S, R2])    
     
-    ### Fill basis 0-16 
+    ### Fill basis 0-12 
     invariants = np.empty(n_features-2)
     
     # Velocity gradient only (0-5)
     invariants[0] = np.trace(S2)
     invariants[1] = np.trace(np.linalg.multi_dot([S2, S]))
     invariants[2] = np.trace(R2)
-    invariants[3] = np.trace(R2_S)
-    invariants[4] = np.trace(np.linalg.multi_dot([R2, S2]))
-    invariants[5] = np.trace(np.linalg.multi_dot([R2_S, R_S2]))
+    invariants[3] = np.trace(S_R2)
+    invariants[4] = np.trace(np.linalg.multi_dot([S2, R2]))
+    invariants[5] = np.trace(np.linalg.multi_dot([S2, R2, S, R]))
     
-    # Velocity + temperature gradients (6-16)
+    # Velocity + temperature gradients (6-12)
     invariants[6] = np.linalg.multi_dot([gradT, gradT])
     invariants[7] = np.linalg.multi_dot([gradT, S, gradT])
     invariants[8] = np.linalg.multi_dot([gradT, S2, gradT])
     invariants[9] = np.linalg.multi_dot([gradT, R2, gradT])
-    invariants[10] = np.linalg.multi_dot([gradT, R, S, gradT])
-    invariants[11] = np.linalg.multi_dot([gradT, R_S2, gradT])
-    invariants[12] = np.linalg.multi_dot([gradT, S, R_S2, gradT])
-    invariants[13] = np.linalg.multi_dot([gradT, R2_S, gradT])
-    invariants[14] = np.linalg.multi_dot([gradT, R2, S2, gradT])
-    invariants[15] = np.linalg.multi_dot([gradT, R2_S, R, gradT])
-    invariants[16] = np.linalg.multi_dot([gradT, R_S2, R2, gradT])    
+    invariants[10] = np.linalg.multi_dot([gradT, S, R, gradT])
+    invariants[11] = np.linalg.multi_dot([gradT, S2, R, gradT])
+    invariants[12] = np.linalg.multi_dot([gradT, R, S_R2, gradT])
     
     return invariants
     
@@ -336,6 +311,7 @@ class MeanFlowQuantities:
         deltaT0 -- scale to non-dimensionalize the temperature gradient
         """       
         
+        print("Loading data for feature calculation...", end="", flush=True)
         self.n_cells = zone.num_elements # number of cell centers
         
         # Velocity Gradients: dudx, dudy, dudz, dvdx, dydy, dydz, dwdx, dwdy, dwdz
@@ -370,6 +346,7 @@ class MeanFlowQuantities:
         # Check that all variables have the correct size and range
         self.sanityCheck()
         
+        print(" Done!")
         
     def nonDimensionalize(self, deltaT0):
         """
@@ -424,6 +401,7 @@ class MeanFlowQuantities_Prt:
                       gradient to work with. Used as a mask on the full dataset.   
         """       
         
+        print("Loading data for Prt calculation...", end="", flush=True)
         self.n_useful = np.sum(should_use) # number of useful cells
         
         # Mean velocity: U, V, W
@@ -452,6 +430,7 @@ class MeanFlowQuantities_Prt:
         # Check that all variables have the correct size and range
         self.sanityCheck()
         
+        print("Done!")
         
     def sanityCheck(self):
         """

@@ -11,8 +11,8 @@ from sklearn.ensemble import RandomForestRegressor
 import os
 import pkg_resources
 import numpy as np
+import timeit
 from rafofc import constants
-
 
 
 class MLModel:
@@ -21,25 +21,72 @@ class MLModel:
     diffusivity. Here is where a pre-trained machine learning model comes in.
     """
 
-    def __init__(self, filepath=None):
+    def __init__(self):
         """
-        Constructor for MLModel class        
-                    
-        This initializes the class by loading a previously trained model that was saved
-        using joblib. The user can instantiate it without arguments to load the default
-        model, shipped with the package. Alternatively, you can instantiate it with one
-        argument representing the path to another saved model. 
+        Constructor for MLModel class
+        """        
+        self._description = "Empty model"
+        self._model = None
+    
+    
+    def loadFromDisk(self):
+        """
+        Loads a previously trained model from disk.
+        """
+        print("Loading method not implemented yet!")
+        pass
+
+    
+    def train(self):
+        """       
+        Trains a model to perform regression on y given x       
+        """
+        print("Training method not implemented yet!")
+        pass    
+    
+    
+    def predict(self):    
+        """
+        Predicts the diffusivity/Prt given features
+        """
+        print("Predicting method not implemented yet!")
+        pass
+    
+    def printDescription(self):
+        """
+        Prints descriptive string attached to the loaded model.
         
-        The model loaded from disk has to be created using joblib.dump() with protocol 2 
-        (compatible with python 2.7), and it has to be a list [string, model] where the 
-        model itself is the second element, and the first element is a string describing
-        the model.
+        This function is called to print out the string that is attached to the model. 
+        This can be called to make sure that we are loading the model that we want.
+        """
+        
+        assert isinstance(self._description, str)        
+        print(self._description)
+        
+        
+class RFModel_Isotropic(MLModel):
+    """
+    This class is a diffusivity model that maps from local flow variables to a turbulent  
+    diffusivity. Here is where a pre-trained machine learning model comes in.
+    """
+    
+    
+    def loadFromDisk(self, filepath=None):
+        """
+        Loads a previously trained model from disk.
+        
+        Loads a previously trained model that was saved using joblib. The user can call
+        it without arguments to load the default model, shipped with the package. 
+        Alternatively, you can call it with one argument representing the relative path
+        to another saved model. The model loaded from disk has to be created using 
+        joblib.dump() and it has to be a list [string, model] where the model itself is
+        the second element, and the first element is a string describing that model.
         
         Arguments:
         filepath -- optional, the path from where to load the pickled ML model. If not 
                     supplied, will load the default model.
-        """ 
-        
+        """
+    
         # if no path is provided, load the default model
         if filepath is None: 
             path = 'data/defaultML.pckl' # location of the default model
@@ -60,12 +107,75 @@ class MLModel:
         assert os.path.isfile(filepath), error_msg # make sure the file exists  
         
         # saved as private variables or the class 
-        self.__description, self.__model = joblib.load(filepath)     
+        self._description, self._model = joblib.load(filepath)
+        assert isinstance(self._model, RandomForestRegressor), "Not a scikit-learn RF!"
+
+    
+    def train(self, x, y, description, savepath,
+              n_trees=None, max_depth=None, min_samples_split=None):
+        """       
+        Trains a random forest model to regress on log(y) given x
+        
+        This function trains a random forest (implemented in scikit-learn) to predict
+        the turbulent Prandtl number given mean flow features. The features are x, and
+        y contains gamma = 1/Prt. We predict log(y) since it is a ratio.
+        
+        Arguments:
+        x -- numpy array containing the features at training points, of shape
+             (n_useful, N_FEATURES). 
+        y -- numpy array containing labels gamma = 1/Prt, of shape (n_useful,)
+        description -- string containing a short, written description of the model,
+                       which is important when the model is loaded and used at a 
+                       later time.
+        savepath -- string containing the path in which the model is saved to disk
+        n_trees -- optional. Hyperparameter of the random forest, contains number of
+                   trees to use. If None (default), reads value from constants.py
+        max_depth -- optional. Hyperparameter of the random forest, contains maximum
+                     depth of each tree to use. If None (default), reads value from
+                     constants.py 
+        min_samples_split -- optional. Hyperparameter of the random forest, contains
+                             minimum number of samples at a node required to split. Can
+                             either be an int (number itself) or a float (ratio of total
+                             examples). If None (default), reads value from constants.py
+        """
+        
+        # Run sanity checks first
+        assert x.shape[0] == y.shape[0], "Number of examples don't match!"
+        assert x.shape[1] == constants.N_FEATURES, "Wrong number of features!"
+        
+        # Read default parameters from constants.py if None is provided
+        if n_trees is None:
+            n_trees = constants.N_TREES
+        if max_depth is None:
+            max_depth = constants.MAX_DEPTH
+        if min_samples_split is None:
+            min_samples_split = constants.MIN_SPLIT
             
+        # Initialize class with description and fresh estimator
+        self._description = description
+        self._model = RandomForestRegressor(n_estimators=n_trees,
+                                            max_depth=max_depth,
+                                            min_samples_split=min_samples_split,
+                                            n_jobs=-1) # n_jobs=-1 means use all CPUs
+        
+        # Train and time
+        print("Training Random Forest on {} points ({})".format(x.shape[0], description))
+        print("n_trees={}, max_depth={}, min_samples_split={}".format(n_trees,max_depth,
+                                                                      min_samples_split))
+        print("This may take several hours. Training...", end="", flush=True)
+        tic=timeit.default_timer() # timing
+        self._model.fit(x, np.log(y))
+        toc=timeit.default_timer()        
+        print(" Done! It took {:.1f} min".format((toc - tic)/60.0))
+        
+        # Save model to disk in specified location
+        joblib.dump([self._description, self._model], savepath, 
+                    compress=constants.COMPRESS, protocol=constants.PROTOCOL)    
+    
     
     def predict(self, x):    
         """
-        Predicts Pr_t given the features. 
+        Predicts Pr_t given the features using random forest model. 
         
         It assumes that the underlying implementation (default: random forests from
         scikit-learn) contains a method called predict. It also assumes that the model
@@ -79,26 +189,13 @@ class MLModel:
              each cell
         """       
         
-        assert isinstance(self.__model, RandomForestRegressor)
-        assert x.shape[1] == 19, "Wrong number of features!"
+        assert isinstance(self._model, RandomForestRegressor)
+        assert x.shape[1] == constants.N_FEATURES, "Wrong number of features!"
         
-        print("ML model loaded: {}".format(self.__description))
+        print("ML model loaded: {}".format(self._description))
         print("Predicting Pr-t using ML model...", end="", flush=True)
-        y = self.__model.predict(x)
+        y = self._model.predict(x)
         Prt = 1.0/np.exp(y)
         print(" Done")
-        return Prt
-    
-    def printDescription(self):
-        """
-        Prints descriptive string attached to the loaded model.
-        
-        This function is called to print out the string that is attached to the model. 
-        This can be called to make sure that we are loading the model that we want.
-        """
-        
-        assert isinstance(self.__description, str)
-        
-        print(self.__description)
-        
+        return Prt       
         

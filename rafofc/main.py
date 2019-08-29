@@ -6,8 +6,9 @@ implements all the functionality directly available to the user.
 
 # import statements
 import numpy as np
+import joblib
 from pkg_resources import get_distribution
-from rafofc.models import MLModel
+from rafofc.models import RFModel_Isotropic
 from rafofc.case import TestCase, TrainingCase
 from rafofc import constants
 
@@ -46,6 +47,8 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                  variables_to_write = ["Prt_ML"], outnames_to_write = ["uds-1"],                 
                  ml_model_path = None):
     """
+    Applies ML model on a single test case, given in a Tecplot file.
+    
     Main function of package. Call this to take in a Tecplot file, process it, apply
     the machine learning model, and save results to disk. All optional arguments may
     only be used with the keyword (that's what * means)
@@ -162,7 +165,8 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     
     # Initialize the ML model and use it for prediction. If ml_model_path is None, just
     # load the default model from disk. 
-    rf = MLModel(ml_model_path)
+    rf = RFModel_Isotropic()
+    rf.loadFromDisk(ml_model_path)
     Prt_ML = rf.predict(x)
     
     # Add Prt_ML as a variable in tecplot, create interp/csv files, and save new
@@ -175,16 +179,100 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     dataset.saveDataset(tecplot_out_path)
 
 
-def trainMLModel(tecplot_in_path, *, 
-                 data_path=None,  
-                 zone = None, 
-                 deltaT0 = None, 
-                 use_default_var_names = False, use_default_derivative_names = True,
-                 calc_derivatives = True, write_derivatives = True, 
-                 threshold = None, clean_features = True, 
-                 features_load_path = None, features_dump_path = None,
-                 prt_cap = None, gamma_correction = False,
-                 downsample=None, tecplot_out_path=None):
+def produceTrainingFeatures(tecplot_in_path, *, 
+                            data_path=None,  
+                            zone = None, deltaT0 = None, 
+                            use_default_var_names = False, 
+                            use_default_derivative_names = True,
+                            calc_derivatives = True, write_derivatives = True, 
+                            threshold = None, clean_features = True, 
+                            features_load_path = None, features_dump_path = None,
+                            prt_cap = None, gamma_correction = False,
+                            downsample=None, tecplot_out_path=None):
+                            
+    """
+    Produces features and labels from a single Tecplot file, used for training.
+    
+    This function is useful for training your own models. Call it on a single Tecplot
+    file (.plt) that contains all mean data including u'c' values, and it will process
+    it to generate the features and labels used for training. All optional arguments may
+    only be used with the keyword (that's what * means)
+    
+    Arguments:
+    tecplot_in_path -- string containing the path of the input tecplot file. It must be
+                       a binary .plt file, resulting from a k-epsilon simulation.
+    data_path -- optional argument. A string containing the path where a joblib file is
+                 saved, containing features and labels for training ML models. If None
+                 (default), a default name is employed.
+    zone -- optional argument. The zone where the flow field solution is saved in 
+            Tecplot. By default, it is zone 0. This can be either a string (with the 
+            zone name) or an integer with the zone index.    
+    deltaT0 -- optional argument. Temperature scale (Tmax - Tmin) that will be used to 
+               non-dimensionalize the dataset. If it is not provided (default behavior),
+               the user will be prompted to enter an appropriate number.    
+    use_default_var_names -- optional argument. Boolean flag (True/False) that determines
+                             whether default Fluent names will be used to fetch variables
+                             in the Tecplot dataset. If the flag is False (default 
+                             behavior), the user will be prompted to enter names for each
+                             variable that is needed.
+    use_default_derivative_names -- optional argument. Boolean flag (True/False) that 
+                                    determine if the user will pick the names for the
+                                    derivative quantities in the Tecplot file or whether
+                                    default names are used. This flag is only used if the
+                                    next flag is False (i.e., if derivatives are 
+                                    already pre-calculated, then setting this flag to 
+                                    False allows the user to input the names of each
+                                    derivative in the input .plt file). It defaults to
+                                    True.
+    calc_derivatives -- optional argument. Boolean flag (True/False) that determines 
+                        whether derivatives need to be calculated in the Tecplot file.
+                        Note we need derivatives of U, V, W, and Temperature, with names
+                        ddx_{}, ddy_{}, ddz_{}. If such variables were already calculated
+                        and exist in the dataset, set this flag to False to speed up the 
+                        process. By default (True), derivatives are calculated and a new
+                        file with derivatives called "derivatives_{}" will be saved to 
+                        disk.
+    write_derivatives -- optional argument. Boolean flag (True/False) that determines 
+                         whether to write a binary Tecplot file to disk with the newly
+                         calculated derivatives. The file will have the same name as the
+                         input, except followed by "_derivatives". This is useful because
+                         calculating derivatives takes a long time, so you might want to
+                         save results to disk as soon as they are calculated.    
+    threshold -- optional argument. This variable determines the threshold for 
+                 (non-dimensional) temperature gradient below which we throw away a 
+                 point. If None, use the value in constants.py (default value is 1e-3).
+                 For temperature gradient less than that, we use the Reynolds analogy
+                 (with fixed Pr_t). For gradients larger than that, we use the 
+                 model.
+    clean_features -- optional argument. This determines whether we should remove outlier
+                      points from the dataset before applying the model. This is measured
+                      by the standard deviation of points around the mean.
+    features_load_path -- optional argument. If this is supplied, then the function will
+                          try to load the features from disk instead of 
+                          processing the tecplot file all over again. Since calculating
+                          the features can take a while for large datasets, this can be 
+                          useful to speed up repetitions.                           
+    features_dump_path -- optional argument. If this is provided and we processed the
+                          tecplot data from scratch (i.e. we calculated the features), 
+                          then the function will save the features to disk, so it is 
+                          much faster to perform the same computations again later.
+    prt_cap -- optional, contains the (symmetric) cap on the value of Pr_t. If None,
+               then use the value in constants.py. If this value is 100, for example,
+               then 0.01 < Pr_t < 100, and values outside of this range are capped.
+    use_correction -- optional. If True, use the correction defined in 
+                      Milani, Ling, Eaton (JTM 2020). That correction only makes
+                      sense if training data is on a fixed reference frame (it breaks
+                      Galilean invariance), so it is turned off by default. However,
+                      it can improve results in some cases.
+    downsample -- optional, number that controls how we downsample the data before
+                  saving it to disk. If None (default), it will read the number from 
+                  constants.py. If this number is more than 1, then it represents the
+                  number of examples we want to save; if it is less than 1, it represents
+                  the ratio of all training examples we want to save.
+    tecplot_out_path -- optional, a string containing the path to which the final tecplot
+                        dataset will be saved. Useful for sanity checking the results. By
+                        default it is None (no .plt file saved)
+    """
 
     # Initialize dataset and get scales for non-dimensionalization. The default behavior
     # is to ask the user for the names and the scales. Passing keyword arguments to this
@@ -223,3 +311,49 @@ def trainMLModel(tecplot_in_path, *,
     if tecplot_out_path is not None:
         dataset.addPrt(1.0/gamma, "Prt_LES")
         dataset.saveDataset(tecplot_out_path)  
+
+
+def trainMLModel(features_list, description, savepath, 
+                 n_trees=None, max_depth=None, min_samples_split=None):
+    """
+    Trains an ML model and saves it to disc.
+    
+    Arguments:
+    features_list -- list containing paths to files saved to disk with features
+                     and labels for training. These files are produced by the function
+                     above (produceTrainingFeatures) from Tecplot files.
+    description -- A short, written description of the model being trained. It will be
+                   saved to disk together with the model itself.
+    savepath -- The path where the trained model will be saved in disk.
+    n_trees -- optional. Hyperparameter of the random forest, contains number of
+                   trees to use. If None (default), reads value from constants.py
+    max_depth -- optional. Hyperparameter of the random forest, contains maximum
+                 depth of each tree to use. If None (default), reads value from
+                 constants.py 
+    min_samples_split -- optional. Hyperparameter of the random forest, contains
+                         minimum number of samples at a node required to split. Can
+                         either be an int (number itself) or a float (ratio of total
+                         examples). If None (default), reads value from constants.py    
+    """
+    
+    # Reads the list of files provided for features/labels
+    print("{} file(s) were provided and will be used".format(len(features_list)))
+    x_list = []
+    y_list = []    
+    for file in features_list:
+        x_features, gamma = joblib.load(file)
+        assert x_features.shape[0] == gamma.shape[0],\
+                       "File {} is incorrect!".format(file)
+        assert x_features.shape[1] == constants.N_FEATURES,\
+                       "File {} is incorrect!".format(file)        
+        
+        x_list.append(x_features)
+        y_list.append(gamma)
+    
+    x_total = np.concatenate(x_list, axis=0)
+    y_total = np.concatenate(y_list, axis=0)
+      
+    rf = RFModel_Isotropic()
+    rf.train(x_total, y_total, description, savepath, 
+             n_trees, max_depth, min_samples_split) 
+    

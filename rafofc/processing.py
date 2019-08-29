@@ -401,7 +401,7 @@ class MeanFlowQuantities_Prt:
                       gradient to work with. Used as a mask on the full dataset.   
         """       
         
-        print("Loading data for Prt calculation...", end="", flush=True)
+        print("Loading data for Pr-t calculation...", end="", flush=True)
         self.n_useful = np.sum(should_use) # number of useful cells
         
         # Mean velocity: U, V, W

@@ -196,6 +196,6 @@ class RFModel_Isotropic(MLModel):
         print("Predicting Pr-t using ML model...", end="", flush=True)
         y = self._model.predict(x)
         Prt = 1.0/np.exp(y)
-        print(" Done")
+        print(" Done!")
         return Prt       
         

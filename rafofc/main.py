@@ -29,7 +29,8 @@ def printInfo():
     
     # Try to load the model and print information about it
     print('Attempting to load the default model...')
-    rafo = MLModel()
+    rafo = RFModel_Isotropic()
+    rf.loadFromDisk()
     print('Default model was found and can be loaded properly.')
     rafo.printDescription()
     

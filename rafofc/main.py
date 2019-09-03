@@ -28,9 +28,9 @@ def printInfo():
     print('Version: {}'.format(dist.version))
     
     # Try to load the model and print information about it
-    print('Attempting to load the default model...')
+    print('Attempting to load the default RF model...')
     rafo = RFModel_Isotropic()
-    rf.loadFromDisk()
+    rafo.loadFromDisk()
     print('Default model was found and can be loaded properly.')
     rafo.printDescription()
     

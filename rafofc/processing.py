@@ -7,7 +7,6 @@ in numpy arrays). These include calculating features, Pr_t, should_use, etc.
 # ------------ Import statements
 import tecplot
 import numpy as np
-import time # needed by tqdm
 from tqdm import tqdm # progress bar
 from rafofc import constants
 

@@ -12,21 +12,26 @@ from tqdm import tqdm # progress bar
 from rafofc import constants
 
 
-def calcInvariants(gradU, gradT, n_features):
+def calcInvariants(gradU, gradT, basis=False):
     """
     This function calculates the invariant basis at one point.
 
     Arguments:
     gradU -- 2D tensor with local velocity gradient (numpy array shape (3,3))
     gradT -- array with local temperature gradient (numpy array shape (3,))
-    n_features -- number of features for the ML model
+    basis -- optional, a flag that determines whether to also calculate tensor basis.
+             By default, it is false (so only invariants are returned)
     
     Returns:
     invariants -- array of shape (n_features-2,) that contains the invariant basis
-                  from the gradient tensors 
-                  that are used by the ML model to make a prediction at the current point
+                  from the gradient tensors that are used by the ML model to make a
+                  prediction at the current point.
+    tensor_basis -- array of shape (n_basis,3,3) that contains the form invariant
+                    tensor basis that are used by the TBNN to construct the tensorial
+                    diffusivity at the current point.
     
-    # from Zheng (1994)
+    # Taken from the paper of Zheng, 1994, "Theory of representations for tensor 
+      functions - A unified invariant approach to constitutive equations"
     """
 
     S = (gradU + np.transpose(gradU)) # symmetric component
@@ -38,7 +43,7 @@ def calcInvariants(gradU, gradT, n_features):
     S_R2 = np.linalg.multi_dot([S, R2])    
     
     ### Fill basis 0-12 
-    invariants = np.empty(n_features-2)
+    invariants = np.empty(constants.N_FEATURES-2)
     
     # Velocity gradient only (0-5)
     invariants[0] = np.trace(S2)
@@ -57,7 +62,21 @@ def calcInvariants(gradU, gradT, n_features):
     invariants[11] = np.linalg.multi_dot([gradT, S2, R, gradT])
     invariants[12] = np.linalg.multi_dot([gradT, R, S_R2, gradT])
     
-    return invariants
+    # Also calculate the tensor basis
+    if basis:
+        tensor_basis = np.empty((constants.N_BASIS,3,3))    
+        tensor_basis[0,:,:] = np.eye(3)
+        tensor_basis[1,:,:] = S
+        tensor_basis[2,:,:] = S2
+        tensor_basis[3,:,:] = R
+        tensor_basis[4,:,:] = R2
+        tensor_basis[5,:,:] = np.linalg.multi_dot([S, R]) + np.linalg.multi_dot([R, S])
+        
+        return invariants, tensor_basis
+    
+    # Just return the scalar invariants
+    else:   
+        return invariants
     
     
 def calculateShouldUse(mfq, threshold):
@@ -121,8 +140,7 @@ def calculateFeatures(mfq, should_use):
     # tqdm wraps around the iterable and generates a progress bar
     for i in tqdm(range(n_useful)): 
         x_features[i, 0:constants.N_FEATURES-2] = calcInvariants(gradU_temporary[i,:,:],
-                                                                 gradT_temporary[i,:],
-                                                                 constants.N_FEATURES)            
+                                                                 gradT_temporary[i,:])            
     
     # Add last two scalars to the features (distance to wall and nu_t/nu)
     Re_wall = np.sqrt(mfq.tke[should_use])*mfq.d[should_use]*\
@@ -136,7 +154,60 @@ def calculateFeatures(mfq, should_use):
     return x_features # return the features, only where should_use == true
     
 
-def cleanFeatures(x_features, should_use, verbose=False):
+def calculateFeaturesAndBasis(mfq, should_use):
+    """
+    This function calculates the ML features and tensor basis for this dataset. 
+    
+    Arguments:
+    mfq -- instance of MeanFlowQuantities class containing necessary arrays to
+              calculate should_use
+    should_use -- boolean array, indicating which cells have large enough
+                  gradient to work with. Used as a mask on the full dataset.   
+                 
+    Returns:
+    x_features -- array of shape (n_useful, n_features) that contains the features
+                  that are used by the ML model to make a prediction at each point.
+    tensor_basis -- array of shape (n_useful, n_basis, 3, 3) that contains the tensor
+                    basis calculate for this dataset.
+    """
+    
+    # this tells us how many of the total number of elements we use for predictions        
+    n_useful = np.sum(should_use)
+    
+    print("Out of {} total points, ".format(mfq.n_cells)
+          + "{} have significant gradient and will be used".format(n_useful))
+    print("Extracting features/basis that will be used by ML model...")
+    
+    # this is the feature vector
+    x_features = np.empty((n_useful, constants.N_FEATURES))
+    tensor_basis = np.empty((n_useful, constants.N_BASIS, 3, 3)) 
+            
+    # Non-dimensionalize in bulk and select only the points where should_use is true
+    gradU_factor = 0.5*mfq.tke[should_use]/mfq.epsilon[should_use]
+    gradT_factor = (mfq.tke[should_use]**(1.5)/mfq.epsilon[should_use])
+    gradU_temporary = mfq.gradU[should_use,:,:]*gradU_factor[:,None,None]
+    gradT_temporary = mfq.gradT[should_use,:]*gradT_factor[:,None]
+    
+    # Loop only where should_use is true to extract invariant basis
+    # tqdm wraps around the iterable and generates a progress bar
+    for i in tqdm(range(n_useful)): 
+        (x_features[i,0:constants.N_FEATURES-2],
+                tensor_basis[i,:,:,:]) = calcInvariants(gradU_temporary[i,:,:],
+                                                        gradT_temporary[i,:], basis=True)            
+    
+    # Add last two scalars to the features (distance to wall and nu_t/nu)
+    Re_wall = np.sqrt(mfq.tke[should_use])*mfq.d[should_use]*\
+                mfq.rho[should_use]/mfq.mu[should_use]
+    nut_over_nu = mfq.mut[should_use]/mfq.mu[should_use]    
+    x_features[:, constants.N_FEATURES-2] = Re_wall
+    x_features[:, constants.N_FEATURES-1] = nut_over_nu            
+    
+    print("Done!")
+            
+    return x_features, tensor_basis # return the features and tensor basis
+    
+
+def cleanFeatures(x_features, should_use, tensor_basis=None, verbose=False):
     """
     This function removes outlier points from consideration.
     
@@ -145,15 +216,19 @@ def cleanFeatures(x_features, should_use, verbose=False):
     cleaned versions of x_features and should_use.
     
     Arguments:
-    x_features -- numpy array containing the features x (shape: n_useful, N_FEATURES)
+    x_features -- numpy array containing the features x (shape: n_useful,N_FEATURES)
     should_use -- boolean array, indicating which cells have large enough
-                  gradient to work with. Used as a mask on the full dataset.    
+                  gradient to work with. Used as a mask on the full dataset.
+    tensor_basis -- optional argument, numpy array containing the tensor basis. This
+                    should be passed when the anisotropic model is employed, but
+                    is irrelevant for the RF models (shape: n_useful,N_BASIS,3,3)
     verbose -- optional argument, parameter for ISDOD. Controls whether the execution is
                verbose or not.
 
     Returns:
     new_x_features -- new version of x_features with only clean points
     new_should_use -- new version of should_use with only clean points
+    new_tensor_basis -- new version of tensor_basis with only clean points
     """
     
     # Hyperparameters, defined in constants.py    
@@ -211,24 +286,30 @@ def cleanFeatures(x_features, should_use, verbose=False):
     new_x_features = x_features[mask, :]
     new_should_use = np.zeros(should_use.shape[0], dtype=np.bool_)
     new_should_use[should_use] = mask
-    return new_x_features, new_should_use
-
-
+    
+    # Return different number of arguments depending on whether a tensor_basis array
+    # was passed as an argument
+    if tensor_basis is None:
+        return new_x_features, new_should_use
+    else:
+        new_tensor_basis = tensor_basis[mask,:,:,:]
+        return new_x_features, new_should_use, new_tensor_basis
+        
+        
 def fillPrt(Prt, should_use):
     """
-    Takes in a 'skinny' Pr_t field and returns a full one
+    Takes in a 'skinny' Pr_t field and returns the full one
     
     Arguments:
-    Prt -- a numpy array shape (n_useful, ) containing the turbulent Prandtl number
-           at each cell where should_use == True. This is the dimensionless
-           diffusivity directly predicted by the machine learning model.
+    Prt -- a numpy array of shape (n_useful, ) containing the turbulent Prandtl number
+           at each cell where should_use = True.
     should_use -- boolean array, indicating which cells have large enough
                   gradient to work with. Used as a mask on the full dataset.
                
     Returns:
-    Prt_full -- a numpy array of shape (n_cells, ) containing a dimensional
-                turbulent diffusivity in every cell of the domain. In cells
-                where should_use == False, use fixed Pr_t assumption.
+    Prt_full -- a numpy array of shape (n_cells, ) containing the turbulent Prandtl
+                number in every cell of the domain. Where should_use == False, use a
+                fixed value of Pr_t prescribed in constants.py
     """
     
     # Sizes from should_use
@@ -246,6 +327,47 @@ def fillPrt(Prt, should_use):
     Prt_full[should_use] = Prt       
     
     return Prt_full
+    
+
+def fillAlpha(alphaij, should_use):
+    """
+    Takes in a 'skinny' alpha_ij field and returns the full one
+    
+    Arguments:
+    alphaij -- a numpy array of shape (n_useful,3,3) containing the dimensionless
+               diffusivity tensor at each cell where should_use = True.
+    should_use -- boolean array, indicating which cells have large enough
+                  gradient to work with. Used as a mask on the full dataset.
+               
+    Returns:
+    alphaij_full -- a numpy array of shape (n_cells,3,3) containing a dimensionless
+                    turbulent diffusivity in every cell of the domain. In cells
+                    where should_use == False, use an isotropic diffusivity based on
+                    a fixed Pr_t given in constants.py, and zero off-diagonal entries.
+                    NOTE: this returns the diffusivity alpha_t/nu_t, and not the 
+                    turbulent Prandtl number nu_t/alpha_t
+    """
+    
+    # Sizes from should_use
+    n_cells = should_use.shape[0]
+    n_useful = np.sum(should_use)   
+    
+    # make sure alphaij has right size and has non-negative diagonals
+    assert alphaij.shape[0] == n_useful, "alphaij has wrong number of entries!"
+    assert alphaij.shape[1] == 3 and alphaij.shape[2] == 3, "alphaij is not a 3D tensor!"
+    assert (alphaij[:,0,0] >= 0).all(), "Found negative entries for alpha_xx"
+    assert (alphaij[:,1,1] >= 0).all(), "Found negative entries for alpha_yy"
+    assert (alphaij[:,2,2] >= 0).all(), "Found negative entries for alpha_zz"
+    
+    # Use Reynolds analogy everywhere first
+    alphaij_full = np.zeros((n_cells,3,3))
+    for i in range(3):
+        alphaij_full[:,i,i] = 1.0/constants.PR_T # fixed constant for diagonals
+    
+    # Fill in places where should_use is True with the predicted Prt_ML:
+    alphaij_full[should_use,:,:] = alphaij       
+    
+    return alphaij_full
 
     
 def calculateGamma(mfq, prt_cap, use_correction):

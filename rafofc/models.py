@@ -17,8 +17,8 @@ from rafofc import constants
 
 class MLModel:
     """
-    This class is a diffusivity model that maps from local flow variables to a turbulent  
-    diffusivity. Here is where a pre-trained machine learning model comes in.
+    This is a super-class of models that predict turbulent diffusivity given
+    local flow features
     """
 
     def __init__(self):
@@ -66,8 +66,8 @@ class MLModel:
         
 class RFModel_Isotropic(MLModel):
     """
-    This class is a diffusivity model that maps from local flow variables to a turbulent  
-    diffusivity. Here is where a pre-trained machine learning model comes in.
+    This class is a diffusivity model that maps from local flow variables to a isotropic
+    turbulent Prandtl number, using a Random Forest model.
     """
     
     
@@ -198,4 +198,12 @@ class RFModel_Isotropic(MLModel):
         Prt = 1.0/np.exp(y)
         print(" Done!")
         return Prt       
-        
+ 
+ 
+class TBNNModel_Anisotropic(MLModel):
+    """
+    This class implements a model that predicts a tensorial (anisotropic) diffusivity
+    using a tensor basis neural network (TBNN-s).
+    """
+    
+    pass

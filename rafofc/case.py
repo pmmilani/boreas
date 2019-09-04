@@ -336,12 +336,10 @@ class Case:
     def extractMLFeatures(self, threshold=None, clean_features=True, 
                           features_load_path=None, features_dump_path=None):
         """
-        Extract quantities from the tecplot file into numpy arrays.
+        Extract quantities from the tecplot file and calculates features.
         
         This method is called to extract all Tecplot quantities into appropriate numpy
-        arrays, which will be used in all the subsequent processing (including ML). It
-        initializes an instance of the ProcessedRANS class and stores all numpy arrays in
-        that class. It then returns x, which contains the ML features.
+        arrays and then calculating the features for ML prediction.
         
         Arguments:
         threshold -- magnitude cut-off for the temperature scalar gradient: only use 
@@ -379,11 +377,12 @@ class Case:
             else:
                 print("Invalid path provided for the features! "
                       + "(path provided: {})".format(features_load_path))
-                print("Features will be calculated instead".format(features_load_path))
+                print("Features will be calculated instead.")
                        
         #---- This section performs all necessary commands to obtain features
         # Initialize the class containing appropriate mean flow quantities
-        mean_qts = processing.MeanFlowQuantities(self._zone, self.var_names, self.deltaT0)
+        mean_qts = processing.MeanFlowQuantities(self._zone, self.var_names, 
+                                                 self.deltaT0)
         
         # Determine which points should be used, shape (n_cells)
         if threshold is None:
@@ -393,6 +392,7 @@ class Case:
         # Calculate features, shape (n_useful, N_FEATURES)
         self.x_features = processing.calculateFeatures(mean_qts, self.should_use)
 
+        # Remove outlier features if necessary
         if clean_features:
             self.x_features, self.should_use = processing.cleanFeatures(self.x_features,
                                                                         self.should_use)
@@ -407,6 +407,93 @@ class Case:
         
         # return the extracted feature array
         return self.x_features
+    
+    
+    def extractFeaturesBases(self, threshold=None, clean_features=True, 
+                             features_load_path=None, features_dump_path=None):
+        """
+        Calculates features and tensor basis for the TBNN model.
+        
+        This method is called to extract all Tecplot quantities into appropriate numpy
+        arrays and then calculating the features and tensor basis for the anisotropic
+        ML model.
+        
+        Arguments:
+        threshold -- magnitude cut-off for the temperature scalar gradient: only use 
+                     points with (dimensionless) magnitude higher than this. Default is
+                     None (which means the value in constants.py is employed).
+        clean_features -- optional keyword argument. If this is True, we clean the
+                          features that are returned, and the should_use array is
+                          modified accordingly.
+        features_load_path -- optional keyword argument. If this is not None, this 
+                              function will attempt to read rans_data from disk and
+                              restore it instead of recalculating everything. The path
+                              where rans_data is located is given by rans_data_path.
+        features_dump_path -- optional keyword argument. If this is not None, and the 
+                              above argument is None, then this method will calculate
+                              rans_data for the current dataset and then save it to
+                              disk (to path specified by features_dump_path). Use it
+                              to avoid recalculating features (since it can be an 
+                              expensive operation)        
+        
+        Returns:
+        x_features -- a numpy array containing the features for prediction in the ML
+                      step. The shape should be (n_useful, n_features)
+        tensor_basis -- a numpy array containing the tensor basis at each point in
+                        the domain. The tensors are 3x3, so the shape is 
+                        (n_useful, n_basis, 3, 3)        
+        """
+        
+        # If we were passed a valid features_load_path, restore features from disk and
+        # return them 
+        if features_load_path:
+            if os.path.isfile(features_load_path):
+                print("A valid path for the features was provided "
+                      + "(path provided: {})".format(features_load_path))
+                print("They will be read from disk...", end="", flush=True)
+                (self.x_features, self.tensor_basis, 
+                                    self.should_use) = joblib.load(features_load_path)                
+                print(" Done!")
+                return self.x_features, self.tensor_basis
+            else:
+                print("Invalid path provided for the features! "
+                      + "(path provided: {})".format(features_load_path))
+                print("Features will be calculated instead")
+                       
+        #---- This section performs all necessary commands to obtain features
+        # Initialize the class containing appropriate mean flow quantities
+        mean_qts = processing.MeanFlowQuantities(self._zone, self.var_names, 
+                                                 self.deltaT0)
+        
+        # Determine which points should be used, shape (n_cells)
+        if threshold is None:
+            threshold = constants.THRESHOLD
+        self.should_use = processing.calculateShouldUse(mean_qts, threshold)
+        
+        # Calculate features and tensor basis, with shapes 
+        # (n_useful, N_FEATURES) and (n_useful, N_BASIS, 3, 3)
+        self.x_features, self.tensor_basis = \
+                          processing.calculateFeaturesAndBasis(mean_qts, self.should_use)
+        
+        # Remove outlier features if necessary
+        if clean_features:
+            (self.x_features, self.should_use,
+                         self.tensor_basis) = processing.cleanFeatures(self.x_features,
+                                                                       self.should_use,
+                                                                       self.tensor_basis)
+        #---- Finished calculating features    
+        
+        
+        # If a dump path is supplied, then save features to disk to disk
+        if features_dump_path:
+            print("Saving features and basis to disk...", end="", flush=True)
+            joblib.dump([self.x_features, self.tensor_basis, self.should_use],
+                        features_dump_path, 
+                        compress=constants.COMPRESS, protocol=constants.PROTOCOL)
+            print(" Done!")
+        
+        # return the extracted feature array
+        return self.x_features, self.tensor_basis
          
     
     def addPrt(self, Prt, varname):
@@ -420,7 +507,7 @@ class Case:
         
         Arguments:
         Prt -- numpy array shape (num_useful, ) with the turbulent Prandtl number
-               (Pr_t) predicted at each cell.
+               (Pr_t) at each cell.
         varname -- string with the name for the new Prt variable in the dataset.
         """
     
@@ -429,11 +516,11 @@ class Case:
         
         # Creates a variable called "Prt_ML" and "should_use" everywhere
         self._tpdataset.add_variable(name=varname,
-                                    dtypes=tecplot.constant.FieldDataType.Float,
-                                    locations=tecplot.constant.ValueLocation.CellCentered)
+                                   dtypes=tecplot.constant.FieldDataType.Float,
+                                   locations=tecplot.constant.ValueLocation.CellCentered)
         self._tpdataset.add_variable(name="should_use",
-                                    dtypes=tecplot.constant.FieldDataType.Int16,
-                                    locations=tecplot.constant.ValueLocation.CellCentered)
+                                   dtypes=tecplot.constant.FieldDataType.Int16,
+                                   locations=tecplot.constant.ValueLocation.CellCentered)
         
         # Add Pr_t_full to the zone
         assert self._zone.num_elements == Prt_full.size, \
@@ -441,7 +528,7 @@ class Case:
         self._zone.values(varname)[:] = Prt_full.tolist()
 
         # Add should_use to the zone                
-        self._zone.values("should_use")[:] = self.should_use.tolist()           
+        self._zone.values("should_use")[:] = self.should_use.tolist()
         
         
     def saveDataset(self, path):
@@ -461,6 +548,42 @@ class TestCase(Case):
     """
     This class is holds the information of a single test case (just RANS simulation).
     """   
+    
+    def addTensorDiff(self, alphaij, varnames):
+        """
+        Adds a tensorial diffusivity to the Tecplot file
+        
+        Arguments:
+        alphaij -- numpy array shape (num_useful, 3, 3) with the dimensionless turbulent
+                   diffusivity matrix at each significant point of the domain.
+        varnames -- list of strings with the names of each tensor entry for the dataset.        
+        """
+        
+        assert alphaij[0,:,:].size == len(varnames), "Wrong number of names for alphaij!"
+        
+        # Create full tensor, at every point of the domain
+        alphaij_full = processing.fillAlpha(alphaij, self.should_use)
+        
+        # Creates all necessary variables in the .plt file
+        for name in varnames:
+            self._tpdataset.add_variable(name=name,
+                                   dtypes=tecplot.constant.FieldDataType.Float,
+                                   locations=tecplot.constant.ValueLocation.CellCentered)
+        self._tpdataset.add_variable(name="should_use",
+                                   dtypes=tecplot.constant.FieldDataType.Int16,
+                                   locations=tecplot.constant.ValueLocation.CellCentered)
+        
+        # Add alphaij to the zone
+        assert self._zone.num_elements == alphaij_full.shape[0], \
+                                       "alphaij_full has wrong number of entries"
+        for i in range(3):
+            for j in range(3):
+                name = varnames[3*i+j]
+                self._zone.values(name)[:] = alphaij_full[:,i,j].tolist()
+
+        # Add should_use to the zone                
+        self._zone.values("should_use")[:] = self.should_use.tolist()    
+        
     
     def fetchVariablesToWrite(self, variable_list):
         """

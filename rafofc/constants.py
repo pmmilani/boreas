@@ -9,6 +9,9 @@ PR_T = 0.85
 # number of features that the ML uses for regression
 N_FEATURES = 15
 
+# number of form invariant basis used for the tensorial diffusivity (TBNN)
+N_BASIS = 6
+
 # Threshold for calculating should_use (based on temperature gradient magnitude)
 THRESHOLD = 1e-3
 
@@ -21,7 +24,7 @@ MAX_CLEAN = 0.05
 # Cap for the value of Prt (symmetric, so the smallest value is 1.0/PRT_CAP)
 PRT_CAP = 100
 
-# Downsample
+# Downsample, applied when producing the features/labels to be used at training time
 DOWNSAMPLE = 1.0
 
 # Joblib parameters for saving files to disc. If compatibility with Python 2

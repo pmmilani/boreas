@@ -8,9 +8,10 @@ implements all the functionality directly available to the user.
 import numpy as np
 import joblib
 from pkg_resources import get_distribution
-from rafofc.models import RFModel_Isotropic
+from rafofc.models import RFModel_Isotropic, TBNNModel_Anisotropic
 from rafofc.case import TestCase, TrainingCase
 from rafofc import constants
+
 
 def printInfo():
     """
@@ -38,21 +39,20 @@ def printInfo():
 
     
 def applyMLModel(tecplot_in_path, tecplot_out_path, *,  
-                 zone = None, 
-                 deltaT0 = None, 
+                 zone = None, deltaT0 = None, 
                  use_default_var_names = False, use_default_derivative_names = True,
                  calc_derivatives = True, write_derivatives = True, 
                  threshold = None, clean_features = True, 
                  features_load_path = None, features_dump_path = None,
                  ip_file_path = None, csv_file_path = None,
-                 variables_to_write = ["Prt_ML"], outnames_to_write = ["uds-1"],                 
-                 ml_model_path = None):
+                 variables_to_write = None, outnames_to_write = None,                 
+                 ml_model_path = None, model_type = "RF"):
     """
     Applies ML model on a single test case, given in a Tecplot file.
     
     Main function of package. Call this to take in a Tecplot file, process it, apply
-    the machine learning model, and save results to disk. All optional arguments may
-    only be used with the keyword (that's what * means)
+    the machine learning model, and save results to disk. All optional arguments must
+    be used with the identifying keyword (that's what * means)
     
     Arguments:
     tecplot_in_path -- string containing the path of the input tecplot file. It must be
@@ -120,24 +120,28 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                      (default), then no csv file is written.    
     variables_to_write -- optional argument. This is a list of strings containing names 
                           of variables in the Tecplot file that we want to write in the 
-                          Fluent interpolation file/CSV file. By default, it contains
-                          only "Prt_ML", which is the machine learning turbulent
-                          Prandtl number we just calculated.   
+                          Fluent interpolation file/CSV file. By default, it is None, 
+                          which leads the program to pick only the diffusivity variables
+                          just calculated.
     outnames_to_write -- optional argument. This is a list of strings that must have the 
                         same length as the previous argument. It contains the names that
-                        each of the variables written in the interpolation file will 
-                        have. By default, this calls the turbulent Prandtl number "uds-1" 
-                        because in Fluent, an easy way to solve the Reynolds-averaged 
-                        scalar transport equation with a custom diffusivity is to use a 
-                        user-defined scalar as containing the custom Prandtl number.
+                        each of the variables written in the interpolation/csv files will 
+                        have. By default, this is None, which leads to code to name all
+                        variables being written sequentially, starting at "uds-2". Naming
+                        them as "user defined scalars x" (uds-x) is an easy way to read
+                        them in Fluent.
     ml_model_path -- optional argument. This is the path where the function will look for
                      a pre-trained machine learning model. The file must be a pickled
                      instance of a random forest regressor class, saved to disk using 
                      joblib. By default, the default machine learning model (which is
                      already pre-trained with LES/DNS of 4 cases) is loaded, which comes
-                     together with the package.    
+                     together with the package.
+    model_type -- optional argument. This tells us which type of model we are loading.
+                  It must be a string, and the currently supported options are "RF",
+                  "TBNNS". The default option is "RF".
     """
     
+    assert model_type == "RF" or model_type == "TBNNS", "Invalid model_type received!"
     
     # Initialize dataset and get scales for non-dimensionalization. The default behavior
     # is to ask the user for the names and the scales. Passing keyword arguments to this
@@ -156,23 +160,56 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
         print("Derivatives already calculated!")
         dataset.addDerivativeNames(use_default_derivative_names)
     
-    # This line processes the dataset and extracts features for the ML step which
-    # can take a long time. features_load_path and features_dump_path can be not
-    # set to make the method load/save the processed quantities from disk.
-    x = dataset.extractMLFeatures(threshold=threshold, 
-                                  features_load_path=features_load_path,
-                                  features_dump_path=features_dump_path,
-                                  clean_features=clean_features)
+    # Here, run the code for applying random forest model ("RF")
+    if model_type == "RF":
+        # This line processes the dataset and extracts features for the ML step which
+        # can take a long time. features_load_path and features_dump_path can be
+        # set to make the method load/save the processed quantities from disk.
+        x = dataset.extractMLFeatures(threshold=threshold, 
+                                      features_load_path=features_load_path,
+                                      features_dump_path=features_dump_path,
+                                      clean_features=clean_features)
+        
+        # Initialize model from disk and predict turbulent Prandtl number. If 
+        # ml_model_path is None, just load the default model from disk. 
+        rf = RFModel_Isotropic()
+        rf.loadFromDisk(ml_model_path)
+        prt_ML = rf.predict(x)
+        
+        # Adds result to tecplot and sets the default variable names to output
+        varname = "Prt_ML"
+        dataset.addPrt(prt_ML, varname) # adds turbulent Prandlt number to tecplot file
+        if variables_to_write is None: 
+            variables_to_write = [varname]
+        if outnames_to_write is None: 
+            outnames_to_write = ["uds-2"]
     
-    # Initialize the ML model and use it for prediction. If ml_model_path is None, just
-    # load the default model from disk. 
-    rf = RFModel_Isotropic()
-    rf.loadFromDisk(ml_model_path)
-    Prt_ML = rf.predict(x)
-    
-    # Add Prt_ML as a variable in tecplot, create interp/csv files, and save new
-    # tecplot file with all new variables.
-    dataset.addPrt(Prt_ML, "Prt_ML")    
+    # Here, run the code for applying TBNN model ("TBNN")
+    else:
+        # This line processes the dataset and returns the features and tensor basis
+        # at each point in the dataset where gradients are significant.
+        x, tb = dataset.extractFeaturesBases(threshold=threshold, 
+                                             features_load_path=features_load_path,
+                                             features_dump_path=features_dump_path,
+                                             clean_features=clean_features)
+        
+        # Initialize model from disk and predict tensorial diffusivity. If 
+        # ml_model_path is None, just load the default model from disk. 
+        nn = TBNNModel_Anisotropic()
+        #nn.loadFromDisk(ml_model_path)
+        #alphaij_ML = nn.predict(x, tb)
+        alphaij_ML = np.ones((x.shape[0],3,3)) # just for testing
+        
+        # Adds result to tecplot and sets the default variable names to output
+        varname = ["Axx", "Axy", "Axz", "Ayx", "Ayy", "Ayz", "Azx", "Azy", "Azz"]
+        dataset.addTensorDiff(alphaij_ML, varname) # adds diffusivity to tecplot file
+        if variables_to_write is None: 
+            variables_to_write = varname
+        if outnames_to_write is None: 
+            outnames_to_write = ["uds-2", "uds-3", "uds-4", "uds-5", "uds-6", "uds-7",
+                                 "uds-8", "uds-9", "uds-10"]
+        
+    # Write output: create interp/csv files and produce tecplot file
     if ip_file_path is not None:
         dataset.createInterpFile(ip_file_path, variables_to_write, outnames_to_write)    
     if csv_file_path is not None:
@@ -180,8 +217,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     dataset.saveDataset(tecplot_out_path)
 
 
-def produceTrainingFeatures(tecplot_in_path, *, 
-                            data_path=None,  
+def produceTrainingFeatures(tecplot_in_path, *, data_path=None,  
                             zone = None, deltaT0 = None, 
                             use_default_var_names = False, 
                             use_default_derivative_names = True,
@@ -189,7 +225,7 @@ def produceTrainingFeatures(tecplot_in_path, *,
                             threshold = None, clean_features = True, 
                             features_load_path = None, features_dump_path = None,
                             prt_cap = None, gamma_correction = False,
-                            downsample=None, tecplot_out_path=None):
+                            downsample = None, tecplot_out_path = None):
                             
     """
     Produces features and labels from a single Tecplot file, used for training.
@@ -293,7 +329,7 @@ def produceTrainingFeatures(tecplot_in_path, *,
         dataset.addDerivativeNames(use_default_derivative_names)
     
     # This line processes the dataset and extracts features for the ML step which
-    # can take a long time. features_load_path and features_dump_path can be not
+    # can take a long time. features_load_path and features_dump_path can be
     # set to make the method load/save the processed quantities from disk.
     _ = dataset.extractMLFeatures(threshold=threshold, 
                                   features_load_path=features_load_path,
@@ -315,7 +351,7 @@ def produceTrainingFeatures(tecplot_in_path, *,
 
 
 def trainMLModel(features_list, description, savepath, 
-                 n_trees=None, max_depth=None, min_samples_split=None):
+                 n_trees = None, max_depth = None, min_samples_split = None):
     """
     Trains an ML model and saves it to disc.
     

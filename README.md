@@ -1,14 +1,18 @@
 ## RaFoFC v1.3.0 - Random Forest for Film Cooling Package (Dev)
 Author: Pedro M. Milani (email: pmmilani@stanford.edu)
 
-Last modified: 09/03/2019
+Last modified: 09/06/2019
 
 Developed and tested in Python 3.6
 
 ### Installation
 To install, run the following command from this directory: 
 
-    python setup.py install [--user]
+    pip install rafofc [--user]
+    
+To uninstall, run : 
+
+    pip uninstall rafofc [--user]
     
 To test the program while it is being developed, run:
 
@@ -19,26 +23,29 @@ administrator privileges in the machine to which you are
 installing the package. The flag --uninstall can be added 
 to uninstall the package. The commands above will also install
 some dependencies (included in the file "requirements.txt")
-needed for this package. 
+needed for this package.
+
+Note that the package requires pytecplot
+to interface with Tecplot files. To install pytecplot, the user must
+have Tecplot 360 2017 R1 or later installed. Follow the instructions
+in https://www.tecplot.com/docs/pytecplot/install.html
 
 ### Usage
 After installation, you can just use the following import 
 statement in any Python program:
 
-    from rafofc.main import printInfo, applyMLModel
+    from rafofc.main import printInfo, applyMLModel, produceTrainingFeatures, trainRFModel
     
 To test everything was installed properly, run the following
 command in a Python script after the import statement above:
 
     printInfo()
     
-The function applyMLModel contains all the functionality that a
-user should need; please review the comments in the main.py file
-to understand all the possible arguments. The simplest usage looks
-as follows, assuming there is a Tecplot file called "jicf_rans.plt"
-from a k-epsilon simulation:
-
-    applyMLModel("jicf_rans.plt", "jicf_rans_out.plt", "jicf_rans.ip")
+The function applyMLModel is called to apply a given trained machine learning model to 
+a Tecplot file containing the solution of the RANS equations with the k-epsilon model.
+produceTrainingFeatures and trainRFModel are used, in this order, to train a machine
+learning model given LES/DNS data. See the file test/example_usage.py for a complete
+example of training and applying a model.
 
 ### Examples and Testing
 The folder test contains a sample Tecplot file and a script that

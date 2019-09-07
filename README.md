@@ -8,22 +8,16 @@ Developed and tested in Python 3.6
 ### Installation
 To install, run the following command from this directory: 
 
-    pip install rafofc [--user]
-    
-To uninstall, run : 
+    pip install -e .
 
-    pip uninstall rafofc [--user]
-    
-To test the program while it is being developed, run:
+To uninstall, run the following from anywhere:
 
-    python setup.py develop [--user] [--uninstall]
+    pip uninstall rafofc
     
-You will need the flag --user in case you don't have 
-administrator privileges in the machine to which you are 
-installing the package. The flag --uninstall can be added 
-to uninstall the package. The commands above will also install
-some dependencies (included in the file "requirements.txt")
-needed for this package.
+The commands above will also install some dependencies 
+(included in the file "requirements.txt") needed for this
+package. Make sure pip is installed (it comes with most
+Python distributions).
 
 Note that the package requires pytecplot
 to interface with Tecplot files. To install pytecplot, the user must

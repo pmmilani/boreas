@@ -10,7 +10,7 @@ import timeit # for timing the derivative
 import tecplot
 import os
 import numpy as np
-from rafofc import processing
+from rafofc import process
 from rafofc import constants
 
 
@@ -118,6 +118,42 @@ def writeValues(file, variable):
     file.write(")\n") # must end with parenthesis and new line
     
 
+def collectCellSpatialVariables(tpdataset, zone):
+    """
+    Collects cell-centered spatial variables for a dataset
+    
+    Arguments:
+    tpdataset -- the Tecplot dataset
+    zone -- the zone of the dataset that we consider
+    
+    Returns:
+    x, y, z -- lists containing cell centered values of Cartesian coordinates    
+    """
+    
+    # First, interpolate x,y,z to cell centers        
+    if not isVariable("X_cell", tpdataset):
+        tecplot.data.operate.execute_equation('{X_cell} = {X}',
+                          value_location=tecplot.constant.ValueLocation.CellCentered)
+    if not isVariable("Y_cell", tpdataset):
+        tecplot.data.operate.execute_equation('{Y_cell} = {Y}',
+                          value_location=tecplot.constant.ValueLocation.CellCentered)
+    if not isVariable("Z_cell", tpdataset):
+        tecplot.data.operate.execute_equation('{Z_cell} = {Z}',
+                          value_location=tecplot.constant.ValueLocation.CellCentered)
+    
+    # Collect as lists
+    x = zone.values("X_cell")[:]
+    y = zone.values("Y_cell")[:]
+    z = zone.values("Z_cell")[:]
+    
+    # Remove X_cell, Y_cell, Z_cell in case they exist
+    xvars = ['X_cell', 'Y_cell', 'Z_cell']
+    for var in xvars:
+        tpdataset.delete_variables(tpdataset.variable(var))
+    
+    return x, y, z   
+    
+    
 class Case:
     """
     This class is holds the information of a single case (either training or testing).
@@ -333,7 +369,7 @@ class Case:
                                                            default_names[i]) 
                                                                   
                                                                   
-    def extractMLFeatures(self, threshold=None, clean_features=True, 
+    def extractFeatures(self, threshold=None, clean_features=True, 
                           features_load_path=None, features_dump_path=None):
         """
         Extract quantities from the tecplot file and calculates features.
@@ -381,21 +417,21 @@ class Case:
                        
         #---- This section performs all necessary commands to obtain features
         # Initialize the class containing appropriate mean flow quantities
-        mean_qts = processing.MeanFlowQuantities(self._zone, self.var_names, 
-                                                 self.deltaT0)
+        mean_qts = process.MeanFlowQuantities(self._zone, self.var_names, 
+                                              self.deltaT0)
         
         # Determine which points should be used, shape (n_cells)
         if threshold is None:
             threshold = constants.THRESHOLD
-        self.should_use = processing.calculateShouldUse(mean_qts, threshold)
+        self.should_use = process.calculateShouldUse(mean_qts, threshold)
         
         # Calculate features, shape (n_useful, N_FEATURES)
-        self.x_features = processing.calculateFeatures(mean_qts, self.should_use)
+        self.x_features = process.calculateFeatures(mean_qts, self.should_use)
 
         # Remove outlier features if necessary
         if clean_features:
-            self.x_features, self.should_use = processing.cleanFeatures(self.x_features,
-                                                                        self.should_use)
+            self.x_features, self.should_use = process.cleanFeatures(self.x_features,
+                                                                     self.should_use)
         #---- Finished calculating features       
         
         # If a dump path is supplied, then save features to disk to disk
@@ -462,25 +498,25 @@ class Case:
                        
         #---- This section performs all necessary commands to obtain features
         # Initialize the class containing appropriate mean flow quantities
-        mean_qts = processing.MeanFlowQuantities(self._zone, self.var_names, 
-                                                 self.deltaT0)
+        mean_qts = process.MeanFlowQuantities(self._zone, self.var_names, 
+                                              self.deltaT0)
         
         # Determine which points should be used, shape (n_cells)
         if threshold is None:
             threshold = constants.THRESHOLD
-        self.should_use = processing.calculateShouldUse(mean_qts, threshold)
+        self.should_use = process.calculateShouldUse(mean_qts, threshold)
         
         # Calculate features and tensor basis, with shapes 
         # (n_useful, N_FEATURES) and (n_useful, N_BASIS, 3, 3)
         self.x_features, self.tensor_basis = \
-                          processing.calculateFeaturesAndBasis(mean_qts, self.should_use)
+                          process.calculateFeaturesAndBasis(mean_qts, self.should_use)
         
         # Remove outlier features if necessary
         if clean_features:
             (self.x_features, self.should_use,
-                         self.tensor_basis) = processing.cleanFeatures(self.x_features,
-                                                                       self.should_use,
-                                                                       self.tensor_basis)
+                         self.tensor_basis) = process.cleanFeatures(self.x_features,
+                                                                    self.should_use,
+                                                                    self.tensor_basis)
         #---- Finished calculating features    
         
         
@@ -496,7 +532,7 @@ class Case:
         return self.x_features, self.tensor_basis
          
     
-    def addPrt(self, Prt, varname):
+    def addPrt(self, prt, varname, default_prt):
         """
         Adds Prt and should_use as variables in the Tecplot file.
         
@@ -506,13 +542,15 @@ class Case:
         where we use the ML model and 0 where we use the default Reynolds analogy.
         
         Arguments:
-        Prt -- numpy array shape (num_useful, ) with the turbulent Prandtl number
+        prt -- numpy array shape (num_useful, ) with the turbulent Prandtl number
                (Pr_t) at each cell.
         varname -- string with the name for the new Prt variable in the dataset.
+        default_prt -- value for the default Pr_t to use where should_use == False.
+                       Can be None, in which case default value is read from constants.py
         """
     
         # First, create a diffusivity that is dimensional and available at every cell
-        Prt_full = processing.fillPrt(Prt, self.should_use)
+        Prt_full = process.fillPrt(prt, self.should_use, default_prt)
         
         # Creates a variable called "Prt_ML" and "should_use" everywhere
         self._tpdataset.add_variable(name=varname,
@@ -537,8 +575,8 @@ class Case:
         
         Arguments:
         path -- path where .plt file should be saved.
-        """
-        
+        """        
+                
         print("Saving .plt file to {}...".format(path), end="", flush=True)
         tecplot.data.save_tecplot_plt(filename=path, dataset=self._tpdataset)
         print(" Done")
@@ -549,20 +587,22 @@ class TestCase(Case):
     This class is holds the information of a single test case (just RANS simulation).
     """   
     
-    def addTensorDiff(self, alphaij, varnames):
+    def addTensorDiff(self, alphaij, varnames, default_prt):
         """
         Adds a tensorial diffusivity to the Tecplot file
         
         Arguments:
         alphaij -- numpy array shape (num_useful, 3, 3) with the dimensionless turbulent
                    diffusivity matrix at each significant point of the domain.
-        varnames -- list of strings with the names of each tensor entry for the dataset.        
+        varnames -- list of strings with the names of each tensor entry for the dataset.
+        default_prt -- value for the default Pr_t to use where should_use == False.
+                       Can be None, in which case default value is read from constants.py
         """
         
         assert alphaij[0,:,:].size == len(varnames), "Wrong number of names for alphaij!"
         
         # Create full tensor, at every point of the domain
-        alphaij_full = processing.fillAlpha(alphaij, self.should_use)
+        alphaij_full = process.fillAlpha(alphaij, self.should_use, default_prt)
         
         # Creates all necessary variables in the .plt file
         for name in varnames:
@@ -603,23 +643,11 @@ class TestCase(Case):
         """
     
         # number of points that will be written
-        N = self._zone.num_elements
+        num_cells = self._zone.num_elements
         
-        # First, get x,y,z from the cell center (and calculate if it does not exist)
-        if not isVariable("X_cell", self._tpdataset):
-            tecplot.data.operate.execute_equation('{X_cell} = {X}',
-                              value_location=tecplot.constant.ValueLocation.CellCentered)
-        if not isVariable("Y_cell", self._tpdataset):
-            tecplot.data.operate.execute_equation('{Y_cell} = {Y}',
-                              value_location=tecplot.constant.ValueLocation.CellCentered)
-        if not isVariable("Z_cell", self._tpdataset):
-            tecplot.data.operate.execute_equation('{Z_cell} = {Z}',
-                              value_location=tecplot.constant.ValueLocation.CellCentered)
-        x = self._zone.values("X_cell")[:]
-        y = self._zone.values("Y_cell")[:]
-        z = self._zone.values("Z_cell")[:]
+        x,y,z = collectCellSpatialVariables(self._tpdataset, self._zone)       
         
-        assert (len(x) == N and len(y) == N and len(z) == N), \
+        assert (len(x) == num_cells and len(y) == num_cells and len(z) == num_cells), \
                                 "x,y,z variables have wrong number of entries!"
         
         # Now, get a list of variables (as numpy arrays) that will be written
@@ -633,7 +661,7 @@ class TestCase(Case):
             var = self._zone.values(var_name)[:]
             
             # Check variable has correct length
-            assert len(var) == N, \
+            assert len(var) == num_cells, \
                   ("Variable to write {} has incorrect number of".format(var_name)
                    + " elements! Check node vs cell.")
             
@@ -810,64 +838,23 @@ class TrainingCase(Case):
                           sense if training data is on a fixed reference frame (it breaks
                           Galilean invariance), so it is turned off by default. However,
                           it can improve results in some cases.
+                          
+        Returns:
+        gamma -- numpy array containing gamma = 1.0/Pr_t at each cell, with 
+                 shape (n_useful,)
         """
         
         # This contains all info we need as arrays. The arrays are already
         # filtered according to should_use, so they have shape (n_useful,...)
-        # This means that this function can only run after extractMLFeatures
-        mean_qts = processing.MeanFlowQuantities_Prt(self._zone, self.var_names,
-                                                     self.should_use)
+        # This means that this function can only run after extractFeatures
+        mean_qts = process.MeanFlowQuantities_Prt(self._zone, self.var_names,
+                                                  self.should_use)
         
         # set to constants.py value if None is provided
         if prt_cap is None:
             prt_cap = constants.PRT_CAP
         
-        self.gamma = processing.calculateGamma(mean_qts, prt_cap, use_correction)
+        gamma = process.calculateGamma(mean_qts, prt_cap, use_correction)
         
-        return self.gamma
-    
-    
-    def saveTrainingFeatures(self, filename, downsample=None):
-        """
-        Saves a .pckl file with the features and labels for training. 
-        
-        Arguments:
-        filename -- the location/name of the file where we save the features
-                    and labels
-        downsample -- optional, number that controls how we downsample the data
-                      before saving it to disk. If None (default), it will read
-                      the number from constants.py. If this number is more than 1,
-                      then it represents the number of examples we want to save; if
-                      it is less than 1, it represents the ratio of all training 
-                      examples we want to save.
-        """
-        
-        
-        
-        print("Saving features/labels to disk in file {}...".format(filename),
-              end="", flush=True)
-        
-        # These lines Implement downsampling. If downsample is greater than 1, we
-        # assume it's the number of elements to use. If downsample is smaller than 1,
-        # it's the ratio of elements to use.
-        n_total = self.gamma.shape[0]
-        idx_tot = np.arange(n_total)
-        np.random.shuffle(idx_tot)
-        
-        if downsample is None:
-            downsample = constants.DOWNSAMPLE        
-        if int(downsample) > 1:
-            n_take = int(downsample)
-        else:
-            n_take = int(downsample * n_total)
-        
-        assert n_take <= n_total, "Cannot downsample to have more points!"
-        idx = idx_tot[0:n_take]
-        
-        # Use joblib to save it to disk
-        save_var = [self.x_features[idx,:], self.gamma[idx]]
-        joblib.dump(save_var, filename, compress=constants.COMPRESS,
-                    protocol=constants.PROTOCOL)
-        
-        print(" Done!")              
+        return gamma   
         

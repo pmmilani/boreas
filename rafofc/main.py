@@ -10,6 +10,7 @@ import joblib
 from pkg_resources import get_distribution
 from rafofc.models import RFModel_Isotropic, TBNNModel_Anisotropic
 from rafofc.case import TestCase, TrainingCase
+from rafofc import process
 from rafofc import constants
 
 
@@ -42,11 +43,11 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                  zone = None, deltaT0 = None, 
                  use_default_var_names = False, use_default_derivative_names = True,
                  calc_derivatives = True, write_derivatives = True, 
-                 threshold = None, clean_features = True, 
+                 threshold = None, default_prt = None, clean_features = True, 
                  features_load_path = None, features_dump_path = None,
                  ip_file_path = None, csv_file_path = None,
                  variables_to_write = None, outnames_to_write = None,                 
-                 ml_model_path = None, model_type = "RF"):
+                 model_path = None, model_type = "RF"):
     """
     Applies ML model on a single test case, given in a Tecplot file.
     
@@ -99,6 +100,9 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                  For temperature gradient less than that, we use the Reynolds analogy
                  (with fixed Pr_t). For gradients larger than that, we use the 
                  model.
+    default_prt -- optional argument, this variable contains the default value of Pr_t to
+                   use in regions where gradients are low or features have been cleaned.
+                   If this is None (default), then use the value from constants.py.
     clean_features -- optional argument. This determines whether we should remove outlier
                       points from the dataset before applying the model. This is measured
                       by the standard deviation of points around the mean.
@@ -130,12 +134,12 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                         variables being written sequentially, starting at "uds-2". Naming
                         them as "user defined scalars x" (uds-x) is an easy way to read
                         them in Fluent.
-    ml_model_path -- optional argument. This is the path where the function will look for
-                     a pre-trained machine learning model. The file must be a pickled
-                     instance of a random forest regressor class, saved to disk using 
-                     joblib. By default, the default machine learning model (which is
-                     already pre-trained with LES/DNS of 4 cases) is loaded, which comes
-                     together with the package.
+    model_path -- optional argument. This is the path where the function will look for
+                  a pre-trained machine learning model. The file must be a pickled
+                  instance of a random forest regressor class, saved to disk using 
+                  joblib. By default, the default machine learning model (which is
+                  already pre-trained with LES/DNS) is loaded, which comes
+                  together with the package.
     model_type -- optional argument. This tells us which type of model we are loading.
                   It must be a string, and the currently supported options are "RF",
                   "TBNNS". The default option is "RF".
@@ -165,26 +169,26 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
         # This line processes the dataset and extracts features for the ML step which
         # can take a long time. features_load_path and features_dump_path can be
         # set to make the method load/save the processed quantities from disk.
-        x = dataset.extractMLFeatures(threshold=threshold, 
-                                      features_load_path=features_load_path,
-                                      features_dump_path=features_dump_path,
-                                      clean_features=clean_features)
+        x = dataset.extractFeatures(threshold=threshold, 
+                                    features_load_path=features_load_path,
+                                    features_dump_path=features_dump_path,
+                                    clean_features=clean_features)
         
         # Initialize model from disk and predict turbulent Prandtl number. If 
-        # ml_model_path is None, just load the default model from disk. 
+        # model_path is None, just load the default model from disk. 
         rf = RFModel_Isotropic()
-        rf.loadFromDisk(ml_model_path)
+        rf.loadFromDisk(model_path)
         prt_ML = rf.predict(x)
         
         # Adds result to tecplot and sets the default variable names to output
         varname = "Prt_ML"
-        dataset.addPrt(prt_ML, varname) # adds turbulent Prandlt number to tecplot file
+        dataset.addPrt(prt_ML, varname, default_prt)
         if variables_to_write is None: 
             variables_to_write = [varname]
         if outnames_to_write is None: 
             outnames_to_write = ["uds-2"]
     
-    # Here, run the code for applying TBNN model ("TBNN")
+    # Here, run the code for applying TBNN model ("TBNNS")
     else:
         # This line processes the dataset and returns the features and tensor basis
         # at each point in the dataset where gradients are significant.
@@ -194,15 +198,15 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                                              clean_features=clean_features)
         
         # Initialize model from disk and predict tensorial diffusivity. If 
-        # ml_model_path is None, just load the default model from disk. 
+        # model_path is None, just load the default model from disk. 
         nn = TBNNModel_Anisotropic()
-        #nn.loadFromDisk(ml_model_path)
+        #nn.loadFromDisk(model_path)
         #alphaij_ML = nn.predict(x, tb)
         alphaij_ML = np.ones((x.shape[0],3,3)) # just for testing
         
         # Adds result to tecplot and sets the default variable names to output
         varname = ["Axx", "Axy", "Axz", "Ayx", "Ayy", "Ayz", "Azx", "Azy", "Azz"]
-        dataset.addTensorDiff(alphaij_ML, varname) # adds diffusivity to tecplot file
+        dataset.addTensorDiff(alphaij_ML, varname, default_prt)
         if variables_to_write is None: 
             variables_to_write = varname
         if outnames_to_write is None: 
@@ -217,7 +221,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     dataset.saveDataset(tecplot_out_path)
 
 
-def produceTrainingFeatures(tecplot_in_path, *, data_path=None,  
+def produceTrainingFeatures(tecplot_in_path, *, data_path = None,  
                             zone = None, deltaT0 = None, 
                             use_default_var_names = False, 
                             use_default_derivative_names = True,
@@ -225,7 +229,8 @@ def produceTrainingFeatures(tecplot_in_path, *, data_path=None,
                             threshold = None, clean_features = True, 
                             features_load_path = None, features_dump_path = None,
                             prt_cap = None, gamma_correction = False,
-                            downsample = None, tecplot_out_path = None):
+                            downsample = None, tecplot_out_path = None,
+                            model_type = "RF"):
                             
     """
     Produces features and labels from a single Tecplot file, used for training.
@@ -309,8 +314,13 @@ def produceTrainingFeatures(tecplot_in_path, *, data_path=None,
     tecplot_out_path -- optional, a string containing the path to which the final tecplot
                         dataset will be saved. Useful for sanity checking the results. By
                         default it is None (no .plt file saved)
+    model_type -- optional argument. This tells us which type of model we are loading.
+                  It must be a string, and the currently supported options are "RF".
+                  The default option is "RF".
     """
-
+    
+    assert model_type == "RF", "Invalid model_type received!"
+    
     # Initialize dataset and get scales for non-dimensionalization. The default behavior
     # is to ask the user for the names and the scales. Passing keyword arguments to this
     # function can be done to go around this behavior
@@ -328,32 +338,48 @@ def produceTrainingFeatures(tecplot_in_path, *, data_path=None,
         print("Derivatives already calculated!")
         dataset.addDerivativeNames(use_default_derivative_names)
     
-    # This line processes the dataset and extracts features for the ML step which
-    # can take a long time. features_load_path and features_dump_path can be
-    # set to make the method load/save the processed quantities from disk.
-    _ = dataset.extractMLFeatures(threshold=threshold, 
-                                  features_load_path=features_load_path,
-                                  features_dump_path=features_dump_path,
-                                  clean_features=clean_features)
-    
-    # Now, extract the value of gamma = 1/Prt
-    gamma = dataset.extractGamma(prt_cap, gamma_correction)
-    
+    if model_type == "RF":
+        # This line processes the dataset and extracts features for the ML step which
+        # can take a long time. features_load_path and features_dump_path can be
+        # set to make the method load/save the processed quantities from disk.
+        x = dataset.extractFeatures(threshold=threshold, 
+                                    features_load_path=features_load_path,
+                                    features_dump_path=features_dump_path,
+                                    clean_features=clean_features)
+        
+        # Now, extract the value of gamma = 1/Prt
+        gamma = dataset.extractGamma(prt_cap, gamma_correction)
+        
+        training_list = [x, gamma]  # what is used from training     
+        
+        # Write the Tecplot data to disk with the extracted Prt_LES for sanity check
+        if tecplot_out_path is not None:
+            dataset.addPrt(1.0/gamma, "Prt_LES")
+            dataset.saveDataset(tecplot_out_path)  
+        
+    else:    
+        print("Not implemented yet! Returning...")
+        return
+
     # Saves joblib file to disk with features/labels for this dataset
+    # If data_path is None, use default name (appending _trainingdata to the end)
     if data_path is None:
         data_path = tecplot_in_path[0:-4] + "_trainingdata.pckl" # default name
-    dataset.saveTrainingFeatures(data_path, downsample)
     
-    # Write the Tecplot data to disk with the extracted Prt_LES for sanity check
-    if tecplot_out_path is not None:
-        dataset.addPrt(1.0/gamma, "Prt_LES")
-        dataset.saveDataset(tecplot_out_path)  
+    # Save training features to disk
+    process.saveTrainingFeatures(training_list, model_type, data_path, downsample)
 
 
-def trainMLModel(features_list, description, savepath, 
+def trainRFModel(features_list, description, model_path, *,
+                 downsample = None,
                  n_trees = None, max_depth = None, min_samples_split = None):
     """
-    Trains an ML model and saves it to disc.
+    Trains a random forest models and saves it to disk.
+    
+    Trains a random forest, isotropic model, with features and labels previously 
+    calculated. Multiple files can be used at the same time (each file in the list
+    comes from a given dataset. All optional arguments may only be used with the 
+    keyword (that's what * means)
     
     Arguments:
     features_list -- list containing paths to files saved to disk with features
@@ -361,7 +387,12 @@ def trainMLModel(features_list, description, savepath,
                      above (produceTrainingFeatures) from Tecplot files.
     description -- A short, written description of the model being trained. It will be
                    saved to disk together with the model itself.
-    savepath -- The path where the trained model will be saved in disk.
+    model_path -- The path where the trained model will be saved in disk.
+    downsample -- optional, number that controls how we downsample the data before
+                  using it to train. If None (default), it will read the number from 
+                  constants.py. If this number is more than 1, then it represents the
+                  number of examples we want to save; if it is less than 1, it represents
+                  the ratio of all training examples we want to save.
     n_trees -- optional. Hyperparameter of the random forest, contains number of
                    trees to use. If None (default), reads value from constants.py
     max_depth -- optional. Hyperparameter of the random forest, contains maximum
@@ -378,19 +409,22 @@ def trainMLModel(features_list, description, savepath,
     x_list = []
     y_list = []    
     for file in features_list:
-        x_features, gamma = joblib.load(file)
+        model_type, x_features, gamma = joblib.load(file)
+        assert model_type == "RF", "Features saved with wrong model type!"
         assert x_features.shape[0] == gamma.shape[0],\
                        "File {} is incorrect!".format(file)
         assert x_features.shape[1] == constants.N_FEATURES,\
                        "File {} is incorrect!".format(file)        
         
-        x_list.append(x_features)
-        y_list.append(gamma)
+        idx = process.downsampleIdx(x_features.shape[0], downsample) # downsampling
+        x_list.append(x_features[idx,:])
+        y_list.append(gamma[idx])
     
     x_total = np.concatenate(x_list, axis=0)
     y_total = np.concatenate(y_list, axis=0)
-      
+    
+    # Here, we train and save the model
     rf = RFModel_Isotropic()
-    rf.train(x_total, y_total, description, savepath, 
+    rf.train(x_total, y_total, description, model_path, 
              n_trees, max_depth, min_samples_split) 
     

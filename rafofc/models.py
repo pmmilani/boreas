@@ -89,17 +89,17 @@ class RFModel_Isotropic(MLModel):
     
         # if no path is provided, load the default model
         if filepath is None: 
-            path = 'data/defaultML.pckl' # location of the default model
+            path = 'data/defaultRF.pckl' # location of the default model
             filepath = pkg_resources.resource_filename(__name__, path)
             
-            error_msg = ("When attempting to load the default model from disk," 
+            error_msg = ("When attempting to load the default RF model from disk," 
                          + " no file was found in path {}.".format(filepath)
                          + " Check your installation.")
         
         # Here a path is provided (relative to the working directory), so just
         # load that file
         else:
-            error_msg = ("When attempting to load a custom model from disk, "
+            error_msg = ("When attempting to load a custom RF model from disk, "
                          + "no file was found in path {}.".format(filepath) 
                          + " Make sure that the file exists.")
         

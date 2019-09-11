@@ -447,9 +447,6 @@ def downsampleIdx(n_total, downsample):
            that we are supposed to take for downsampling.    
     """
     
-    # These lines implement downsampling. If downsample is greater than 1, we
-    # assume it's the number of elements to use. If downsample is smaller than 1,
-    # it's the ratio of elements to use.    
     idx_tot = np.arange(n_total)
     np.random.shuffle(idx_tot)
     

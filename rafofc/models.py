@@ -4,7 +4,6 @@ This file contains all the classes used to load and interact with the machine le
 model that will make predictions on a turbulent diffusivity
 """
 
-
 # ------------ Import statements
 import joblib # joblib is used to load trained models from disk
 from sklearn.ensemble import RandomForestRegressor
@@ -13,6 +12,9 @@ import pkg_resources
 import numpy as np
 import timeit
 from rafofc import constants
+from tbnns.main import TBNNS
+import tensorflow as tf
+from tbnns.utils import suppressWarnings
 
 
 class MLModel:
@@ -206,4 +208,104 @@ class TBNNModel_Anisotropic(MLModel):
     using a tensor basis neural network (TBNN-s).
     """
     
-    pass
+    def __init__(self):
+        """
+        Constructor for TBNNModel_Anisotropic class. Adds the extra tf.Session()
+        and suppresses the tensorflow warnings
+        """ 
+        
+        super().__init__() # performs regular initialization        
+        suppressWarnings()        
+        self._tfsession = tf.Session() # initializes tensorflow session
+        
+    
+    def loadFromDisk(self, filepath=None):
+        """
+        Loads a previously trained model from disk.
+        
+        Loads a previously trained model that was saved using joblib. The user can call
+        it without arguments to load the default model, shipped with the package. 
+        Alternatively, you can call it with one argument representing the relative path
+        to another saved model. The model loaded from disk has to be created using 
+        joblib.dump() and it has to be a list [string, model] where the model itself is
+        the second element, and the first element is a string describing that model.
+        
+        Arguments:
+        filepath -- optional, the path from where to load the pickled ML model. If not 
+                    supplied, will load the default model. Note that for TBNN-s, we need
+                    the file containing the metadata AND a tensorflow checkpoint file
+                    containing parameters. filepath holds the location of the former, 
+                    which contains the location of the latter.
+        """
+    
+        # if no path is provided, load the default model
+        if filepath is None: 
+            path = 'data/defaultTBNNs.pckl' # location of the default model
+            filepath = pkg_resources.resource_filename(__name__, path)
+            
+            error_msg = ("When attempting to load the default TBNN-s model from disk," 
+                         + " no file was found in path {}.".format(filepath)
+                         + " Check your installation.")
+        
+        # Here a path is provided (relative to the working directory), so just
+        # load that file
+        else:
+            error_msg = ("When attempting to load a custom TBNN-s model from disk, "
+                         + "no file was found in path {}.".format(filepath) 
+                         + " Make sure that the file exists.")
+        
+        
+        assert os.path.isfile(filepath), error_msg # make sure the file exists  
+        
+        # saved as private variables or the class 
+        self._description, model_list = joblib.load(filepath)        
+        FLAGS, saved_path, feat_mean, feat_std = model_list
+        
+        # Now, initialize TBNN-s and load parameters.        
+        if filepath is None: # need to correct the directory is default model is loaded
+            saved_path = pkg_resources.resource_filename(__name__, saved_path)
+        self._model = TBNNS(FLAGS, saved_path, feat_mean, feat_std)        
+        self._model.loadParameters(self._tfsession)
+        
+    
+    def predict(self, x_features, tensor_basis):
+        """
+        Predicts alpha_ij given the features using TBNN-s model. 
+        
+        It uses the tbnns library which has the proper implementation. The model
+        predicts a dimensionless diffusivity matrix (3x3) on each cell of the domain.
+        To obtain the dimensional diffusivity, multiply alphaij by nu_t.
+        
+        Arguments:
+        x_features -- numpy array (num_useful, N_FEATURES) of features
+        tensor_basis -- numpy array (num_useful, N_BASIS, 3, 3) of tensor basis
+        
+        Returns:
+        alphaij -- numpy array (num_useful, 3, 3) for the dimensionless tensor 
+                   diffusivity in each cell
+        """       
+        
+        assert isinstance(self._model, TBNNS), "Model is not a TBNN-s!"
+        assert x_features.shape[1] == constants.N_FEATURES, "Wrong number of features!"
+        assert tensor_basis.shape[1] == constants.N_BASIS, "Wrong number of tensor basis!"
+        assert tensor_basis.shape[0] == x_features.shape[0], \
+                               "number of features and tensor basis do not match!"
+        
+        print("ML model loaded: {}".format(self._description))
+        print("Predicting Pr-t using ML model...", end="", flush=True)
+        alphaij = self._model.getTotalDiffusivity(self._tfsession, x_features, 
+                                                  tensor_basis)       
+        print(" Done!")
+        
+        return alphaij
+
+    
+    def printParams(self):
+        """
+        This function prints all the trainable parameters in the loaded TBNN-s model. Use
+        this for sanity checking and for seeing how big is a loaded model. Can only call
+        this after model has been initialized.
+        """
+        
+        assert isinstance(self._model, TBNNS), "Model is not a TBNN-s!"       
+        self._model.printTrainableParams()

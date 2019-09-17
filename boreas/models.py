@@ -216,7 +216,7 @@ class TBNNModel_Anisotropic(MLModel):
         
         super().__init__() # performs regular initialization        
         suppressWarnings()        
-        self._tfsession = tf.Session() # initializes tensorflow session
+        self._tfsession = None # will hold the tensorflow session
         
     
     def loadFromDisk(self, filepath=None):
@@ -237,9 +237,12 @@ class TBNNModel_Anisotropic(MLModel):
                     containing parameters. filepath holds the location of the former, 
                     which contains the location of the latter.
         """
-    
+        
+        default_model = False # this determines whether we are loading the default model
+        
         # if no path is provided, load the default model
-        if filepath is None: 
+        if filepath is None:
+            default_model = True
             path = 'data/defaultTBNNs.pckl' # location of the default model
             filepath = pkg_resources.resource_filename(__name__, path)
             
@@ -262,9 +265,13 @@ class TBNNModel_Anisotropic(MLModel):
         FLAGS, saved_path, feat_mean, feat_std = model_list
         
         # Now, initialize TBNN-s and load parameters.        
-        if filepath is None: # need to correct the directory is default model is loaded
-            saved_path = pkg_resources.resource_filename(__name__, saved_path)
-        self._model = TBNNS(FLAGS, saved_path, feat_mean, feat_std)        
+        if default_model: # need to correct the directory is default model is loaded
+            saved_path = os.path.join('data',saved_path)
+            saved_path = pkg_resources.resource_filename(__name__, saved_path)            
+        self._model = TBNNS(FLAGS, saved_path, feat_mean, feat_std)
+        
+        self._tfsession = tf.Session()
+        
         self._model.loadParameters(self._tfsession)
         
     
@@ -292,10 +299,12 @@ class TBNNModel_Anisotropic(MLModel):
                                "number of features and tensor basis do not match!"
         
         print("ML model loaded: {}".format(self._description))
-        print("Predicting Pr-t using ML model...", end="", flush=True)
-        alphaij = self._model.getTotalDiffusivity(self._tfsession, x_features, 
-                                                  tensor_basis)       
-        print(" Done!")
+        print("Predicting tensor diffusivity using ML model...", flush=True)
+        alphaij, _ = self._model.getTotalDiffusivity(self._tfsession, x_features, 
+                                                     tensor_basis,
+                                                     prt_default=constants.PR_T,
+                                                     gamma_min=1.0/constants.PRT_CAP)
+        print("Done!")
         
         return alphaij
 

@@ -5,6 +5,7 @@ built so the user can just call 'pytest'
 """
 
 import os
+import joblib
 import numpy as np
 from boreas.main import printInfo, applyMLModel, produceTrainingFeatures, trainRFModel
 from boreas import constants
@@ -19,29 +20,11 @@ def test_print_info():
     
     assert printInfo() == 1
     
-    
-def test_loading_default_rf_model():
-    """
-    This function checks to see whether we can load the default RF model.
-    """            
-        
-    # Test loading
-    rafo_default = RFModel_Isotropic()
-    rafo_default.loadFromDisk()    
-    rafo_default.printDescription()
-    
-    # Test predicting
-    n_test = 1000    
-    x = -100.0 + 100*np.random.rand(n_test, constants.N_FEATURES)
-    y = rafo_default.predict(x)
-    assert y.shape == (n_test, )
-    assert (y >= 1.0/constants.PRT_CAP).all() and (y <= constants.PRT_CAP).all()
-
-    
+ 
 def test_full_cycle_rf():
     """
     This function runs the full boreas procedure on the sample coarse RANS simulation
-    and makes sure the results are the same that we got previously.
+    with the isotropic model (RF)
     """
     
     # Make the path relative to the location of the present script
@@ -63,7 +46,7 @@ def test_full_cycle_rf():
     produceTrainingFeatures(input_filename_r1, data_path=output_features_r1,
                             deltaT0 = 1, # Tmax-Tmin = 1 in this case
                             use_default_var_names = True, # variable names are default
-                            write_derivatives = True, # no need to cache derivatives
+                            write_derivatives = True, # cache derivatives
                             features_dump_path = feature_dump_r1,
                             model_type = "RF")   
     
@@ -89,8 +72,69 @@ def test_full_cycle_rf():
     
     # Remove all files I just wrote to disk
     os.remove(output_features_r1)
-    os.remove(derivatives_file)
+    # os.remove(derivatives_file) (will be used in the next test)
     os.remove(feature_dump_r1)
     os.remove(tecplot_filename_out_r1)
     os.remove(csv_output_name_r1)
     os.remove(savepath)
+    
+
+def test_full_cycle_tbnns():
+    """
+    This function runs the full boreas procedure on the sample coarse RANS simulation
+    with the anisotropic model (TBNNS)
+    """
+    
+    # Make the path relative to the location of the present script
+    dirname = os.path.dirname(__file__)        
+    
+    # All relevant file names --    
+    derivatives_file = os.path.join(dirname, "JICF_BR1_supercoarse_derivatives.plt")    
+    tecplot_filename_out_r1 = os.path.join(dirname, "JICF_BR1_supercoarse_out.plt") #output tecplot file
+    feature_dump_r1 = os.path.join(dirname, "features_r1_tbnns.pckl")
+    csv_output_name_r1 = os.path.join(dirname, "JICF_BR1_supercoarse_out.csv") #output csv file
+    ip_output_name_r1 = os.path.join(dirname, "JICF_BR1_supercoarse_out.ip") #output ip file
+    test_model_path = os.path.join(dirname, "nn_test.pckl") # the custom model saved to disk
+    test_model_path_modified = os.path.join(dirname, "nn_test_2.pckl") # the custom model saved to disk
+    # -------------------------    
+    
+    # (1) ------------- This part applies the default model to the BR=1 case
+    print("\n")
+    print("Applying default anisotropic model on BR=1 case")   
+    applyMLModel(derivatives_file, tecplot_filename_out_r1,
+                 deltaT0 = 1, # Tmax-Tmin = 1 in this case
+                 use_default_var_names = True, # variable names are default
+                 calc_derivatives = False, # we are reading the derivatives file we just saved
+                 write_derivatives = False,
+                 features_dump_path = feature_dump_r1, # dump for future use
+                 csv_file_path = csv_output_name_r1,                
+                 model_type = "TBNNS") # here we choose the model type
+
+    # (2) ------------- This part applies the custom model to the BR=1 case
+    
+    # These lines are a little hack to make the path of checkpoints/ relative to the current location.
+    # We load the actual file and save a modified version of it, with the correct path.
+    description, model_list = joblib.load(test_model_path)        
+    FLAGS, saved_path, feat_mean, feat_std = model_list
+    saved_path = os.path.join(dirname, saved_path)
+    joblib.dump([description, [FLAGS, saved_path, feat_mean, feat_std]], test_model_path_modified)
+    
+    print("\n")
+    print("Applying a custom anisotropic model on BR=1 case")   
+    applyMLModel(derivatives_file, tecplot_filename_out_r1,
+                 deltaT0 = 1, # Tmax-Tmin = 1 in this case
+                 use_default_var_names = True, # variable names are default
+                 calc_derivatives = False, # we are reading the derivatives file we just saved
+                 write_derivatives = False,
+                 features_load_path = feature_dump_r1, # load what we processed before
+                 ip_file_path = ip_output_name_r1,
+                 model_path = test_model_path_modified,
+                 model_type = "TBNNS") # here we choose the model type 
+    
+    # Remove all files I just wrote to disk
+    os.remove(derivatives_file)    
+    os.remove(tecplot_filename_out_r1)
+    os.remove(feature_dump_r1)
+    os.remove(csv_output_name_r1)
+    os.remove(ip_output_name_r1)
+    os.remove(test_model_path_modified)

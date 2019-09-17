@@ -19,23 +19,32 @@ def printInfo():
     Makes sure everything is properly installed.
     
     We print a welcome message, the version of the package, and attempt to load
-    the pre-trained model to make sure the data file is there. Return 1 at the end
+    the pre-trained models to make sure the data file is there. Return 1 at the end
     if no exceptions were raised.
     """
     
-    print('Welcome to Boreas - Business-Oriented Repository' +
-          ' for Advanced Scalar Mixing Models (formerly RaFoFC)!')
+    print('Welcome to Boreas - a package for industrial deployment of machine-learned '
+          + 'turbulent mixing models for film cooling (formerly known as RaFoFC)!')
     
     # Get distribution version
     dist = get_distribution('boreas')
     print('Version: {}'.format(dist.version))
     
-    # Try to load the model and print information about it
+    # Try to load the default RF model and print information about it
     print('Attempting to load the default RF model...')
-    rafo = RFModel_Isotropic()
-    rafo.loadFromDisk()
+    rf = RFModel_Isotropic()
+    rf.loadFromDisk()
     print('Default model was found and can be loaded properly.')
-    rafo.printDescription()
+    print('\t Description: ', end="", flush=True)
+    rf.printDescription()
+    
+    # Try to load the default TBNNS model and print information about it
+    print('Attempting to load the default TBNN-s model...')
+    nn = TBNNModel_Anisotropic()
+    nn.loadFromDisk()
+    print('Default model was found and can be loaded properly.')
+    print('\t Description: ', end="", flush=True)
+    nn.printDescription()
     
     return 1 # return this if everything went ok
 
@@ -202,7 +211,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
         # model_path is None, just load the default model from disk. 
         nn = TBNNModel_Anisotropic()
         nn.loadFromDisk(model_path)
-        alphaij_ML = nn.predict(x, tb)
+        alphaij_ML = nn.predict(x, tb)        
                 
         # Adds result to tecplot and sets the default variable names to output
         varname = ["Axx", "Axy", "Axz", "Ayx", "Ayy", "Ayz", "Azx", "Azy", "Azz"]
@@ -319,7 +328,7 @@ def produceTrainingFeatures(tecplot_in_path, *, data_path = None,
                   The default option is "RF".
     """
     
-    assert model_type == "RF", "Invalid model_type received!"
+    assert model_type == "RF" or model_type == "TBNNS", "Invalid model_type received!"
     
     # Initialize dataset and get scales for non-dimensionalization. The default behavior
     # is to ask the user for the names and the scales. Passing keyword arguments to this
@@ -408,17 +417,10 @@ def trainRFModel(features_list, description, model_path, *,
     print("{} file(s) were provided and will be used".format(len(features_list)))
     x_list = []
     y_list = []    
-    for file in features_list:
-        model_type, x_features, gamma = joblib.load(file)
-        assert model_type == "RF", "Features saved with wrong model type!"
-        assert x_features.shape[0] == gamma.shape[0],\
-                       "File {} is incorrect!".format(file)
-        assert x_features.shape[1] == constants.N_FEATURES,\
-                       "File {} is incorrect!".format(file)        
-        
-        idx = process.downsampleIdx(x_features.shape[0], downsample) # downsampling
-        x_list.append(x_features[idx,:])
-        y_list.append(gamma[idx])
+    for file in features_list:        
+        x_features, gamma = process.loadTrainingFeatures(file, "RF", downsample)
+        x_list.append(x_features)
+        y_list.append(gamma)             
     
     x_total = np.concatenate(x_list, axis=0)
     y_total = np.concatenate(y_list, axis=0)

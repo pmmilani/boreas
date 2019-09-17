@@ -370,7 +370,7 @@ class Case:
                                                                   
                                                                   
     def extractFeatures(self, threshold=None, clean_features=True, 
-                          features_load_path=None, features_dump_path=None):
+                        features_load_path=None, features_dump_path=None):
         """
         Extract quantities from the tecplot file and calculates features.
         
@@ -401,13 +401,17 @@ class Case:
         """
         
         # If we were passed a valid features_load_path, restore features from disk and
-        # return them 
+        # return them. Joblib .pckl file containing features is a list containing 
+        # ["RF", [x_features, should_use]]. Make sure to check for that structure.
         if features_load_path:
             if os.path.isfile(features_load_path):
                 print("A valid path for the features was provided "
                       + "(path provided: {})".format(features_load_path))
                 print("They will be read from disk...", end="", flush=True)
-                self.x_features, self.should_use = joblib.load(features_load_path)                
+                model_type, data = joblib.load(features_load_path) 
+                assert model_type == "RF", "Features saved are from wrong model! " + \
+                                          "Got '{}', expected 'RF'".format(model_type)
+                self.x_features, self.should_use = data
                 print(" Done!")
                 return self.x_features
             else:
@@ -437,7 +441,7 @@ class Case:
         # If a dump path is supplied, then save features to disk to disk
         if features_dump_path:
             print("Saving features to disk...", end="", flush=True)
-            joblib.dump([self.x_features, self.should_use], features_dump_path, 
+            joblib.dump(["RF", [self.x_features, self.should_use]], features_dump_path, 
                         compress=constants.COMPRESS, protocol=constants.PROTOCOL)
             print(" Done!")
         
@@ -481,14 +485,18 @@ class Case:
         """
         
         # If we were passed a valid features_load_path, restore features from disk and
-        # return them 
+        # return them. Joblib .pckl file containing features is a list containing 
+        # ["TBNNS", [x_features, tensor_basis, should_use]]. Make sure to check for that
+        # structure. 
         if features_load_path:
             if os.path.isfile(features_load_path):
                 print("A valid path for the features was provided "
                       + "(path provided: {})".format(features_load_path))
                 print("They will be read from disk...", end="", flush=True)
-                (self.x_features, self.tensor_basis, 
-                                    self.should_use) = joblib.load(features_load_path)                
+                model_type, data = joblib.load(features_load_path) 
+                assert model_type == "TBNNS", "Features saved are from wrong model! " + \
+                                          "Got '{}', expected 'TBNNS'".format(model_type)
+                self.x_features, self.tensor_basis, self.should_use = data                                
                 print(" Done!")
                 return self.x_features, self.tensor_basis
             else:
@@ -523,7 +531,7 @@ class Case:
         # If a dump path is supplied, then save features to disk to disk
         if features_dump_path:
             print("Saving features and basis to disk...", end="", flush=True)
-            joblib.dump([self.x_features, self.tensor_basis, self.should_use],
+            joblib.dump(["TBNNS", [self.x_features, self.tensor_basis, self.should_use]],
                         features_dump_path, 
                         compress=constants.COMPRESS, protocol=constants.PROTOCOL)
             print(" Done!")
@@ -599,7 +607,7 @@ class TestCase(Case):
                        Can be None, in which case default value is read from constants.py
         """
         
-        assert alphaij[0,:,:].size == len(varnames), "Wrong number of names for alphaij!"
+        assert alphaij[0].size == len(varnames), "Wrong number of names for alphaij!"
         
         # Create full tensor, at every point of the domain
         alphaij_full = process.fillAlpha(alphaij, self.should_use, default_prt)

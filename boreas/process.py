@@ -470,42 +470,77 @@ def downsampleIdx(n_total, downsample):
     
     
 def saveTrainingFeatures(training_list, model_type, filename, downsample):
-        """
-        Saves a .pckl file with the features and labels for training. Downsamples data
-        if necessary
-        
-        Arguments:
-        training_list -- a list (of variable length) containing numpy arrays that
-                         are required for training. We want to save all of them to
-                         disk
-        model_type -- string containing the model type. This will be read and asserted
-                      when the present data is read for training       
-        filename -- the location/name of the file where we save the features
-                    and labels
-        downsample -- number that controls how we downsample the data
-                      before saving it to disk. If None, it will read
-                      the number from constants.py. If this number is more than 1,
-                      then it represents the number of examples we want to save; if
-                      it is less than 1, it represents the ratio of all training 
-                      examples we want to save.
-        """        
-        
-        print("Saving features/labels to disk in file {}...".format(filename),
-              end="", flush=True)
-        
-        # These lines implement downsampling
-        n_total = training_list[0].shape[0] # size of first axis of first entry
-        idx = downsampleIdx(n_total, downsample)
-        
-        save_var = [model_type, ] # First entry specifies the model type
-        for var in training_list:
-            save_var.append(var[idx]) # downsample variable by variable
-            
-        joblib.dump(save_var, filename, compress=constants.COMPRESS,
-                    protocol=constants.PROTOCOL)
-        
-        print(" Done!")              
+    """
+    Saves a .pckl file with the features and labels for training. Downsamples data
+    if necessary
     
+    Arguments:
+    training_list -- a list (of variable length) containing numpy arrays that
+                     are required for training. We want to save all of them to
+                     disk
+    model_type -- string containing the model type. This will be read and asserted
+                  when the present data is read for training       
+    filename -- the location/name of the file where we save the features
+                and labels
+    downsample -- number that controls how we downsample the data
+                  before saving it to disk. If None, it will read
+                  the number from constants.py. If this number is more than 1,
+                  then it represents the number of examples we want to save; if
+                  it is less than 1, it represents the ratio of all training 
+                  examples we want to save.
+    """        
+    
+    print("Saving features/labels to disk in file {}...".format(filename),
+          end="", flush=True)
+    
+    # These lines implement downsampling
+    n_total = training_list[0].shape[0] # size of first axis of first entry
+    idx = downsampleIdx(n_total, downsample)
+    
+    save_var = [] # Variables that will be saved
+    for var in training_list:
+        save_var.append(var[idx]) # downsample variable by variable
+        
+    joblib.dump([model_type, save_var], filename, compress=constants.COMPRESS,
+                protocol=constants.PROTOCOL)
+    
+    print(" Done!")              
+ 
+
+def loadTrainingFeatures(file, model_type, downsample):
+    """
+    Counterpart to saveTrainingFeatures, this function loads features and labels for
+    training.
+    
+    Arguments:
+    file -- string containing the location of the file that will be read
+    model_type -- string containing the model type, like "RF" or "TBNNS"
+    downsample -- number that controls how we downsample the data
+                  before saving it to disk. If None, it will read
+                  the number from constants.py. If this number is more than 1,
+                  then it represents the number of examples we want to save; if
+                  it is less than 1, it represents the ratio of all training 
+                  examples we want to save.
+                  
+    Returns:
+    training_list -- a list (of variable length) containing numpy arrays that
+                     are required for training. This list differs depending on
+                     the model type.    
+    """
+    
+    model_type_disk, save_vars = joblib.load(file)
+    assert model_type == model_type_disk, "Features from the wrong model!"   
+    
+    n_points = save_vars[0].shape[0]
+    idx = downsampleIdx(n_points, downsample) # downsampling
+    
+    training_list = []
+    for var in save_vars:
+        assert var.shape[0] == n_points, "Wrong number of points in file {}".format(file)
+        training_list.append(var[idx])
+    
+    return training_list  
+      
     
 class MeanFlowQuantities:
     """

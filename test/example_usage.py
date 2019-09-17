@@ -1,10 +1,10 @@
 #------------------------------ example_usage.py ---------------------------------------#
 """
-Quick script showing how to import and use the RaFoFC package
+Quick script showing how to import and use the Boreas package
 """
 
 # Import statement: only four functions the user will need, which are defined in main.py
-from rafofc.main import printInfo, applyMLModel, produceTrainingFeatures, trainRFModel
+from boreas.main import printInfo, applyMLModel, produceTrainingFeatures, trainRFModel
 
 
 def main():

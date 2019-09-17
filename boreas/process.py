@@ -9,7 +9,7 @@ import tecplot
 import numpy as np
 import joblib
 from tqdm import tqdm # progress bar
-from rafofc import constants
+from boreas import constants
 
 
 def calcInvariants(gradU, gradT, basis=False):

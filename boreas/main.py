@@ -8,10 +8,10 @@ implements all the functionality directly available to the user.
 import numpy as np
 import joblib
 from pkg_resources import get_distribution
-from rafofc.models import RFModel_Isotropic, TBNNModel_Anisotropic
-from rafofc.case import TestCase, TrainingCase
-from rafofc import process
-from rafofc import constants
+from boreas.models import RFModel_Isotropic, TBNNModel_Anisotropic
+from boreas.case import TestCase, TrainingCase
+from boreas import process
+from boreas import constants
 
 
 def printInfo():
@@ -23,10 +23,11 @@ def printInfo():
     if no exceptions were raised.
     """
     
-    print('Welcome to RaFoFC - Random Forest for Film Cooling package!')
+    print('Welcome to Boreas - Business-Oriented Repository' +
+          ' for Advanced Scalar Mixing Models (formerly RaFoFC)!')
     
     # Get distribution version
-    dist = get_distribution('rafofc')
+    dist = get_distribution('boreas')
     print('Version: {}'.format(dist.version))
     
     # Try to load the model and print information about it

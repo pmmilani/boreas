@@ -10,8 +10,8 @@ import timeit # for timing the derivative
 import tecplot
 import os
 import numpy as np
-from rafofc import process
-from rafofc import constants
+from boreas import process
+from boreas import constants
 
 
 def getFloatFromUser(message):

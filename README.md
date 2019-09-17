@@ -1,9 +1,9 @@
-## RaFoFC v1.3.0 - Random Forest for Film Cooling Package (Dev)
+## Boreas v2.0 - a package for industrial deployment of machine-learned turbulent mixing models for film cooling (formerly RaFoFC)
 Author: Pedro M. Milani (email: pmmilani@stanford.edu)
 
-Last modified: 09/06/2019
+Last modified: 09/17/2019
 
-Developed and tested in Python 3.6
+Developed and tested in Python 3.7
 
 ### Installation
 To install, run the following command from this directory: 
@@ -12,7 +12,7 @@ To install, run the following command from this directory:
 
 To uninstall, run the following from anywhere:
 
-    pip uninstall rafofc
+    pip uninstall boreas
     
 The commands above will also install some dependencies 
 (included in the file "requirements.txt") needed for this
@@ -28,7 +28,7 @@ in https://www.tecplot.com/docs/pytecplot/install.html
 After installation, you can just use the following import 
 statement in any Python program:
 
-    from rafofc.main import printInfo, applyMLModel, produceTrainingFeatures, trainRFModel
+    from boreas.main import printInfo, applyMLModel, produceTrainingFeatures, trainRFModel
     
 To test everything was installed properly, run the following
 command in a Python script after the import statement above:

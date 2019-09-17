@@ -11,9 +11,9 @@ import os
 import pkg_resources
 import numpy as np
 import timeit
-from rafofc import constants
-from tbnns.main import TBNNS
 import tensorflow as tf
+from boreas import constants
+from tbnns.main import TBNNS
 from tbnns.utils import suppressWarnings
 
 

@@ -1,5 +1,5 @@
-#----------------------- MANIFEST.in file for RaFoFC package ---------------------------#
+#----------------------- MANIFEST.in file for Boreas package ---------------------------#
 
 include LICENSE
 include README.md
-recursive-include rafofc/data *.pckl
+recursive-include boreas/data *.pckl

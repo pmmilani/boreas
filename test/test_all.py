@@ -6,9 +6,9 @@ built so the user can just call 'pytest'
 
 import os
 import numpy as np
-from rafofc.main import printInfo, applyMLModel, produceTrainingFeatures, trainRFModel
-from rafofc import constants
-from rafofc.models import RFModel_Isotropic
+from boreas.main import printInfo, applyMLModel, produceTrainingFeatures, trainRFModel
+from boreas import constants
+from boreas.models import RFModel_Isotropic
 
 
 def test_print_info():
@@ -40,7 +40,7 @@ def test_loading_default_rf_model():
     
 def test_full_cycle_rf():
     """
-    This function runs the full rafofc procedure on the sample coarse RANS simulation
+    This function runs the full boreas procedure on the sample coarse RANS simulation
     and makes sure the results are the same that we got previously.
     """
     

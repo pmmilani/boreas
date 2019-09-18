@@ -6,7 +6,7 @@
 --index-url https://pypi.python.org/simple/
 
 # List of python libraries to install
-pytecplot>=0.10.0
+pytecplot>=1.0.0
 scikit-learn==0.21.3
 tqdm>=4.19.8
 pytest>=5.1.2

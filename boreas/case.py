@@ -92,8 +92,12 @@ def isVariable(name, dataset):
     """
 
     try:
-        # if name is not a valid variable name, exception is thrown
-        _ = dataset.variable(name) 
+        # if name is not a valid variable name, exception is thrown (or it returns None)
+        var = dataset.variable(name)
+        
+        if var is None:
+            return False
+        
         return True
     
     except: 
@@ -127,7 +131,7 @@ def collectCellSpatialVariables(tpdataset, zone):
     zone -- the zone of the dataset that we consider
     
     Returns:
-    x, y, z -- lists containing cell centered values of Cartesian coordinates    
+    x, y, z -- numpy arrays containing cell centered values of Cartesian coordinates    
     """
     
     # First, interpolate x,y,z to cell centers        
@@ -141,10 +145,10 @@ def collectCellSpatialVariables(tpdataset, zone):
         tecplot.data.operate.execute_equation('{Z_cell} = {Z}',
                           value_location=tecplot.constant.ValueLocation.CellCentered)
     
-    # Collect as lists
-    x = zone.values("X_cell")[:]
-    y = zone.values("Y_cell")[:]
-    z = zone.values("Z_cell")[:]
+    # Collect as lists    
+    x = zone.values("X_cell").as_numpy_array()
+    y = zone.values("Y_cell").as_numpy_array()
+    z = zone.values("Z_cell").as_numpy_array()
     
     # Remove X_cell, Y_cell, Z_cell in case they exist
     xvars = ['X_cell', 'Y_cell', 'Z_cell']
@@ -571,10 +575,10 @@ class Case:
         # Add Pr_t_full to the zone
         assert self._zone.num_elements == Prt_full.size, \
                                 "Prt_full has wrong number of entries"
-        self._zone.values(varname)[:] = Prt_full.tolist()
+        self._zone.values(varname)[:] = Prt_full
 
         # Add should_use to the zone                
-        self._zone.values("should_use")[:] = self.should_use.tolist()
+        self._zone.values("should_use")[:] = self.should_use
         
         
     def saveDataset(self, path):
@@ -627,10 +631,10 @@ class TestCase(Case):
         for i in range(3):
             for j in range(3):
                 name = varnames[3*i+j]
-                self._zone.values(name)[:] = alphaij_full[:,i,j].tolist()
+                self._zone.values(name)[:] = alphaij_full[:,i,j]
 
         # Add should_use to the zone                
-        self._zone.values("should_use")[:] = self.should_use.tolist()    
+        self._zone.values("should_use")[:] = self.should_use
         
     
     def fetchVariablesToWrite(self, variable_list):
@@ -655,7 +659,7 @@ class TestCase(Case):
         
         x,y,z = collectCellSpatialVariables(self._tpdataset, self._zone)       
         
-        assert (len(x) == num_cells and len(y) == num_cells and len(z) == num_cells), \
+        assert (x.size == num_cells and y.size == num_cells and z.size == num_cells), \
                                 "x,y,z variables have wrong number of entries!"
         
         # Now, get a list of variables (as numpy arrays) that will be written
@@ -666,10 +670,10 @@ class TestCase(Case):
             assert isVariable(var_name, self._tpdataset), \
                "{} is not a valid variable to write in interp/csv file!".format(var_name)
                       
-            var = self._zone.values(var_name)[:]
+            var = self._zone.values(var_name).as_numpy_array()
             
             # Check variable has correct length
-            assert len(var) == num_cells, \
+            assert var.size == num_cells, \
                   ("Variable to write {} has incorrect number of".format(var_name)
                    + " elements! Check node vs cell.")
             
@@ -702,7 +706,7 @@ class TestCase(Case):
                   + "of variables (variables_to_write)!")                  
         assert len(variable_list) >= 1, "Must write at least one variable!"
         
-        # Call helper to get appropriate lists.
+        # Call helper to get appropriate numpy arrays, also checks the sizes
         x,y,z,vars = self.fetchVariablesToWrite(variable_list)
         
         # Open the file and write the variables with the correct format
@@ -711,7 +715,7 @@ class TestCase(Case):
             # Write header
             interp_file.write("3\n") # version. Must be 3
             interp_file.write("3\n") # dimensionality. must be 3
-            interp_file.write("{}\n".format(len(x))) # number of points
+            interp_file.write("{}\n".format(x.size)) # number of points
             interp_file.write("{}\n".format(len(variable_list))) # number of variables
             for name in outname_list:
                 interp_file.write("{}\n".format(name))
@@ -765,7 +769,7 @@ class TestCase(Case):
             csv_file.write("\n")
             
             # Write the variables
-            for i in range(len(x)):
+            for i in range(x.size):
                 # Here, write the x,y,z positions
                 csv_file.write("{:.6e}, {:.6e}, {:.6e}".format(x[i], y[i], z[i]))
                 

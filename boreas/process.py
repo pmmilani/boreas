@@ -565,29 +565,29 @@ class MeanFlowQuantities:
         
         # Velocity Gradients: dudx, dudy, dudz, dvdx, dydy, dydz, dwdx, dwdy, dwdz
         self.gradU = np.empty((self.n_cells, 3, 3)) # this is a 3D array of size Nx3x3
-        self.gradU[:, 0, 0] = np.asarray(zone.values(var_names["ddx_U"])[:])
-        self.gradU[:, 1, 0] = np.asarray(zone.values(var_names["ddy_U"])[:])
-        self.gradU[:, 2, 0] = np.asarray(zone.values(var_names["ddz_U"])[:])
-        self.gradU[:, 0, 1] = np.asarray(zone.values(var_names["ddx_V"])[:])
-        self.gradU[:, 1, 1] = np.asarray(zone.values(var_names["ddy_V"])[:])
-        self.gradU[:, 2, 1] = np.asarray(zone.values(var_names["ddz_V"])[:])
-        self.gradU[:, 0, 2] = np.asarray(zone.values(var_names["ddx_W"])[:])
-        self.gradU[:, 1, 2] = np.asarray(zone.values(var_names["ddy_W"])[:])
-        self.gradU[:, 2, 2] = np.asarray(zone.values(var_names["ddz_W"])[:])
+        self.gradU[:, 0, 0] = zone.values(var_names["ddx_U"]).as_numpy_array()
+        self.gradU[:, 1, 0] = zone.values(var_names["ddy_U"]).as_numpy_array()
+        self.gradU[:, 2, 0] = zone.values(var_names["ddz_U"]).as_numpy_array()
+        self.gradU[:, 0, 1] = zone.values(var_names["ddx_V"]).as_numpy_array()
+        self.gradU[:, 1, 1] = zone.values(var_names["ddy_V"]).as_numpy_array()
+        self.gradU[:, 2, 1] = zone.values(var_names["ddz_V"]).as_numpy_array()
+        self.gradU[:, 0, 2] = zone.values(var_names["ddx_W"]).as_numpy_array()
+        self.gradU[:, 1, 2] = zone.values(var_names["ddy_W"]).as_numpy_array()
+        self.gradU[:, 2, 2] = zone.values(var_names["ddz_W"]).as_numpy_array()
         
         # Temperature Gradients: dTdx, dTdy, dTdz
         self.gradT = np.empty((self.n_cells, 3)) # this is a 2D array of size Nx3
-        self.gradT[:, 0] = np.asarray(zone.values(var_names["ddx_T"])[:])
-        self.gradT[:, 1] = np.asarray(zone.values(var_names["ddy_T"])[:])
-        self.gradT[:, 2] = np.asarray(zone.values(var_names["ddz_T"])[:])
+        self.gradT[:, 0] = zone.values(var_names["ddx_T"]).as_numpy_array()
+        self.gradT[:, 1] = zone.values(var_names["ddy_T"]).as_numpy_array()
+        self.gradT[:, 2] = zone.values(var_names["ddz_T"]).as_numpy_array()
         
         # Other scalars: density, tke, epsilon, mu_t, mu, distance to wall
-        self.tke = np.asarray(zone.values(var_names["TKE"])[:])
-        self.epsilon = np.asarray(zone.values(var_names["epsilon"])[:])
-        self.rho  = np.asarray(zone.values(var_names["Density"])[:])
-        self.mu = np.asarray(zone.values(var_names["laminar viscosity"])[:])
-        self.mut = np.asarray(zone.values(var_names["turbulent viscosity"])[:])
-        self.d = np.asarray(zone.values(var_names["distance to wall"])[:])
+        self.tke = zone.values(var_names["TKE"]).as_numpy_array()
+        self.epsilon = zone.values(var_names["epsilon"]).as_numpy_array()
+        self.rho  = zone.values(var_names["Density"]).as_numpy_array()
+        self.mu = zone.values(var_names["laminar viscosity"]).as_numpy_array()
+        self.mut = zone.values(var_names["turbulent viscosity"]).as_numpy_array()
+        self.d = zone.values(var_names["distance to wall"]).as_numpy_array()
         
         # Non-dimensionalization done in different method
         self.nonDimensionalize(deltaT0)
@@ -655,26 +655,26 @@ class MeanFlowQuantities_Prt:
         
         # Mean velocity: U, V, W
         self.U = np.empty((self.n_useful, 3)) # this is a 2D array of size Nx3
-        self.U[:, 0] = np.asarray(zone.values(var_names["U"])[:])[should_use]
-        self.U[:, 1] = np.asarray(zone.values(var_names["V"])[:])[should_use]
-        self.U[:, 2] = np.asarray(zone.values(var_names["W"])[:])[should_use]
+        self.U[:, 0] = (zone.values(var_names["U"]).as_numpy_array())[should_use]
+        self.U[:, 1] = (zone.values(var_names["V"]).as_numpy_array())[should_use]
+        self.U[:, 2] = (zone.values(var_names["W"]).as_numpy_array())[should_use]
         
         # Temperature Gradients: dTdx, dTdy, dTdz
         self.gradT = np.empty((self.n_useful, 3)) # this is a 2D array of size Nx3
-        self.gradT[:, 0] = np.asarray(zone.values(var_names["ddx_T"])[:])[should_use]
-        self.gradT[:, 1] = np.asarray(zone.values(var_names["ddy_T"])[:])[should_use]
-        self.gradT[:, 2] = np.asarray(zone.values(var_names["ddz_T"])[:])[should_use]
+        self.gradT[:, 0] = (zone.values(var_names["ddx_T"]).as_numpy_array())[should_use]
+        self.gradT[:, 1] = (zone.values(var_names["ddy_T"]).as_numpy_array())[should_use]
+        self.gradT[:, 2] = (zone.values(var_names["ddz_T"]).as_numpy_array())[should_use]
         
         # u'c' vector
         self.uc = np.empty((self.n_useful, 3)) # this is a 2D array of size Nx3
-        self.uc[:, 0] = np.asarray(zone.values(var_names["uc"])[:])[should_use]
-        self.uc[:, 1] = np.asarray(zone.values(var_names["vc"])[:])[should_use]
-        self.uc[:, 2] = np.asarray(zone.values(var_names["wc"])[:])[should_use]
+        self.uc[:, 0] = (zone.values(var_names["uc"]).as_numpy_array())[should_use]
+        self.uc[:, 1] = (zone.values(var_names["vc"]).as_numpy_array())[should_use]
+        self.uc[:, 2] = (zone.values(var_names["wc"]).as_numpy_array())[should_use]
         
         # Other scalars: T, rho, mu_t
-        self.T  = np.asarray(zone.values(var_names["T"])[:])[should_use]
-        self.rho  = np.asarray(zone.values(var_names["Density"])[:])[should_use]
-        self.mut = np.asarray(zone.values(var_names["turbulent viscosity"])[:])[should_use]
+        self.T  = (zone.values(var_names["T"]).as_numpy_array())[should_use]
+        self.rho  = (zone.values(var_names["Density"]).as_numpy_array())[should_use]
+        self.mut = (zone.values(var_names["turbulent viscosity"]).as_numpy_array())[should_use]
         
         # Check that all variables have the correct size and range
         self.sanityCheck()

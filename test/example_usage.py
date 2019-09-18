@@ -53,8 +53,7 @@ def main():
                  ip_file_path = fluent_interp_output_name,
                  csv_file_path = csv_output_name,
                  model_path = savepath, # path is the same we saved to previously
-                 model_type = "RF") # here we choose the model type
-    
+                 model_type = "RF") # here we choose the model type    
     
     
     #------------- This part applies the model trained previously to the BR=1 case
@@ -92,8 +91,7 @@ def main():
                  ip_file_path = fluent_interp_output_name,
                  csv_file_path = csv_output_name,
                  model_path = None, # uses default model that comes with the package
-                 model_type = "TBNNS") # here we choose the model type    
-    
+                 model_type = "TBNNS") # here we choose the model type 
     
     
 if __name__ == "__main__":

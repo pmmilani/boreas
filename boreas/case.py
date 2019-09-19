@@ -591,7 +591,7 @@ class Case:
                 
         print("Saving .plt file to {}...".format(path), end="", flush=True)
         tecplot.data.save_tecplot_plt(filename=path, dataset=self._tpdataset)
-        print(" Done")
+        print(" Done!")
         
         
 class TestCase(Case):

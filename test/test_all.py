@@ -30,52 +30,52 @@ def test_full_cycle_rf():
     # Make the path relative to the location of the present script
     dirname = os.path.dirname(__file__)        
     
-    # All relevant file names --
-    input_filename_r1 = os.path.join(dirname, "JICF_BR1_supercoarse.plt")
-    output_features_r1 = os.path.join(dirname, "JICF_BR1_supercoarse_trainingdata.pckl")
-    derivatives_file = os.path.join(dirname, "JICF_BR1_supercoarse_derivatives.plt")
-    feature_dump_r1 = os.path.join(dirname, "features_r1.pckl")
-    tecplot_filename_out_r1 = os.path.join(dirname, "JICF_BR1_supercoarse_out.plt") #output tecplot file
-    csv_output_name_r1 = os.path.join(dirname, "JICF_BR1_supercoarse_out.csv") #output csv file
+    # All relevant file names -------
+    input_filename_r2 = os.path.join(dirname, "JICF_BR2_supercoarse.plt")
+    output_features_r2 = os.path.join(dirname, "JICF_BR2_supercoarse_trainingdata.pckl")
+    derivatives_file = os.path.join(dirname, "JICF_BR2_supercoarse_derivatives.plt")
+    feature_dump_r2 = os.path.join(dirname, "features_r2.pckl")
+    tecplot_filename_out_r2 = os.path.join(dirname, "JICF_BR2_supercoarse_out.plt") #output tecplot file
+    ip_output_name_r2 = os.path.join(dirname, "JICF_BR2_supercoarse_out.ip") #output ip file   
     savepath = os.path.join(dirname, "RFtest.pckl") # the model saved to disk
-    # -------------------------
+    # -------------------------------
     
     #--------------- This first part trains a model using the BR=1 dataset
     print("\n")
-    print("(1) -------------- Extracting features from BR=1 case")
-    produceTrainingFeatures(input_filename_r1, data_path=output_features_r1,
+    print("(1) -------------- Extracting features from BR=2 case")
+    produceTrainingFeatures(input_filename_r2, data_path=output_features_r2,
                             deltaT0 = 1, # Tmax-Tmin = 1 in this case
                             use_default_var_names = True, # variable names are default
                             write_derivatives = True, # cache derivatives
-                            features_dump_path = feature_dump_r1,
+                            features_dump_path = feature_dump_r2, # save features to disk
                             model_type = "RF")   
     
     # Use the features extracted before to train the RF model
     print("\n")
     print("(2) -------------- Training model on extracted features")
-    feature_list = [output_features_r1,]
-    description = "Example RF model trained with supercoarse BR=1 LES"        
+    feature_list = [output_features_r2,]
+    description = "Example RF model trained with supercoarse BR=2 LES"        
     trainRFModel(feature_list, description, savepath)    
     
-    #------------- This second part applies the model trained previously to the BR=1 case
+    #------------- This second part applies the model trained previously to the BR=2 case
     print("\n")
-    print("(3) -------------- Applying trained model on BR=1 case")   
-    applyMLModel(derivatives_file, tecplot_filename_out_r1,
+    print("(3) -------------- Applying trained model on BR=2 case")   
+    applyMLModel(derivatives_file, tecplot_filename_out_r2,
                  deltaT0 = 1, # Tmax-Tmin = 1 in this case
                  use_default_var_names = True, # variable names are default
                  calc_derivatives = False, # we are reading the derivatives file we just saved
                  write_derivatives = False,
-                 features_load_path = feature_dump_r1, # load what we processed before
-                 csv_file_path = csv_output_name_r1,
+                 features_load_path = feature_dump_r2, # load what we processed before
+                 ip_file_path = ip_output_name_r2,
                  model_path = savepath, # path is the same we saved to previously
                  model_type = "RF") # here we choose the model type    
     
     # Remove all files I just wrote to disk
-    os.remove(output_features_r1)
-    # os.remove(derivatives_file) (will be used in the next test)
-    os.remove(feature_dump_r1)
-    os.remove(tecplot_filename_out_r1)
-    os.remove(csv_output_name_r1)
+    os.remove(output_features_r2)
+    os.remove(derivatives_file)
+    os.remove(feature_dump_r2)
+    os.remove(tecplot_filename_out_r2)
+    os.remove(ip_output_name_r2)
     os.remove(savepath)
     
 
@@ -89,7 +89,7 @@ def test_full_cycle_tbnns():
     dirname = os.path.dirname(__file__)        
     
     # All relevant file names --    
-    derivatives_file = os.path.join(dirname, "JICF_BR1_supercoarse_derivatives.plt")    
+    input_file = os.path.join(dirname, "JICF_BR1_supercoarse_derivatives.plt")    
     tecplot_filename_out_r1 = os.path.join(dirname, "JICF_BR1_supercoarse_out.plt") #output tecplot file
     feature_dump_r1 = os.path.join(dirname, "features_r1_tbnns.pckl")
     csv_output_name_r1 = os.path.join(dirname, "JICF_BR1_supercoarse_out.csv") #output csv file
@@ -101,11 +101,10 @@ def test_full_cycle_tbnns():
     # (1) ------------- This part applies the default model to the BR=1 case
     print("\n")
     print("Applying default anisotropic model on BR=1 case")   
-    applyMLModel(derivatives_file, tecplot_filename_out_r1,
+    applyMLModel(input_file, tecplot_filename_out_r1,
                  deltaT0 = 1, # Tmax-Tmin = 1 in this case
                  use_default_var_names = True, # variable names are default
-                 calc_derivatives = False, # we are reading the derivatives file we just saved
-                 write_derivatives = False,
+                 calc_derivatives = False, # we are reading the derivatives file we just saved                 
                  features_dump_path = feature_dump_r1, # dump for future use
                  csv_file_path = csv_output_name_r1,                
                  model_type = "TBNNS") # here we choose the model type
@@ -121,18 +120,16 @@ def test_full_cycle_tbnns():
     
     print("\n")
     print("Applying a custom anisotropic model on BR=1 case")   
-    applyMLModel(derivatives_file, tecplot_filename_out_r1,
+    applyMLModel(input_file, tecplot_filename_out_r1,
                  deltaT0 = 1, # Tmax-Tmin = 1 in this case
                  use_default_var_names = True, # variable names are default
-                 calc_derivatives = False, # we are reading the derivatives file we just saved
-                 write_derivatives = False,
+                 calc_derivatives = False, # we are reading the derivatives file we just saved                 
                  features_load_path = feature_dump_r1, # load what we processed before
                  ip_file_path = ip_output_name_r1,
                  model_path = test_model_path_modified,
                  model_type = "TBNNS") # here we choose the model type 
     
     # Remove all files I just wrote to disk
-    os.remove(derivatives_file)    
     os.remove(tecplot_filename_out_r1)
     os.remove(feature_dump_r1)
     os.remove(csv_output_name_r1)

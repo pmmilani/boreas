@@ -11,10 +11,8 @@ import os
 import pkg_resources
 import numpy as np
 import timeit
-import tensorflow as tf
 from boreas import constants
 from tbnns.main import TBNNS
-from tbnns.utils import suppressWarnings
 
 
 class MLModel:
@@ -214,9 +212,8 @@ class TBNNModel_Anisotropic(MLModel):
         and suppresses the tensorflow warnings
         """ 
         
-        super().__init__() # performs regular initialization        
-        suppressWarnings()        
-        self._tfsession = None # will hold the tensorflow session
+        super().__init__() # performs regular initialization               
+        self._model = TBNNS() # holds the instance of the model
         
     
     def loadFromDisk(self, filepath=None):
@@ -260,19 +257,15 @@ class TBNNModel_Anisotropic(MLModel):
         
         assert os.path.isfile(filepath), error_msg # make sure the file exists  
         
-        # saved as private variables or the class 
-        self._description, model_list = joblib.load(filepath)        
-        FLAGS, saved_path, feat_mean, feat_std = model_list
-        
-        # Now, initialize TBNN-s and load parameters.        
-        if default_model: # need to correct the directory is default model is loaded
+        # Now, initialize TBNN-s and load parameters.
+        assert default_model==False, "Right now, reading default model doesn't work!"
+        if default_model: # need to correct the directory is default model is loaded 
+            ## TO DO: Fix loading default model
             saved_path = os.path.join('data',saved_path)
             saved_path = pkg_resources.resource_filename(__name__, saved_path)            
-        self._model = TBNNS(FLAGS, saved_path, feat_mean, feat_std)
-        
-        self._tfsession = tf.Session()
-        
-        self._model.loadParameters(self._tfsession)
+                
+        # load model from disk and return the description 
+        self._description = self._model.loadfromDisk(filepath)
         
     
     def predict(self, x_features, tensor_basis):
@@ -300,10 +293,10 @@ class TBNNModel_Anisotropic(MLModel):
         
         print("ML model loaded: {}".format(self._description))
         print("Predicting tensor diffusivity using ML model...", flush=True)
-        alphaij, _ = self._model.getTotalDiffusivity(self._tfsession, x_features, 
-                                                     tensor_basis,
-                                                     prt_default=constants.PR_T,
-                                                     gamma_min=1.0/constants.PRT_CAP)
+        alphaij, _, _ = self._model.getTotalDiffusivity(self._tfsession, x_features, 
+                                                        tensor_basis,
+                                                        prt_default=constants.PR_T,
+                                                        gamma_min=1.0/constants.PRT_CAP)
         print("Done!")
         
         return alphaij

@@ -22,7 +22,7 @@ TOL = 0.005
 MAX_CLEAN = 0.05
 
 # Cap for the value of Prt (symmetric, so the smallest value is 1.0/PRT_CAP)
-PRT_CAP = 100
+PRT_CAP = 20
 
 # Downsample, applied when producing the features/labels to be used at training time
 DOWNSAMPLE = 1.0

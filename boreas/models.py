@@ -216,7 +216,7 @@ class TBNNSModelAnisotropic(MLModel):
         self._model = TBNNS() # holds the instance of the model
         
     
-    def loadFromDisk(self, filepath=None):
+    def loadFromDisk(self, filepath=None, verbose=False):
         """
         Loads a previously trained model from disk.
         
@@ -233,6 +233,8 @@ class TBNNSModelAnisotropic(MLModel):
                     the file containing the metadata AND a tensorflow checkpoint file
                     containing parameters. filepath holds the location of the former, 
                     which contains the location of the latter.
+        verbose -- optional, boolean flag indicating whether to print out model parameters
+                   and flags upon loading. False by default.
         """
         
         # if no path is provided, load the default model
@@ -262,7 +264,7 @@ class TBNNSModelAnisotropic(MLModel):
         assert os.path.isfile(filepath), error_msg # make sure the file exists          
                 
         # load model from disk and return the description 
-        self._description = self._model.loadFromDisk(filepath,
+        self._description = self._model.loadFromDisk(filepath, verbose=verbose,
                                                      fn_modify=fn_modify)
         
     

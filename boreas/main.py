@@ -210,7 +210,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
         # Initialize model from disk and predict tensorial diffusivity. If 
         # model_path is None, just load the default model from disk. 
         nn = TBNNSModelAnisotropic()
-        nn.loadFromDisk(model_path)
+        nn.loadFromDisk(model_path, verbose=True)
         alphaij_ML = nn.predict(x, tb)        
                 
         # Adds result to tecplot and sets the default variable names to output

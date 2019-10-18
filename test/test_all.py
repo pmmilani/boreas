@@ -9,8 +9,6 @@ import joblib
 import numpy as np
 from boreas.main import printInfo, applyMLModel, produceTrainingFeatures, trainRFModel
 from boreas import constants
-from boreas.models import RFModel_Isotropic
-
 
 def test_print_info():
     """
@@ -40,7 +38,7 @@ def test_full_cycle_rf():
     savepath = os.path.join(dirname, "RFtest.pckl") # the model saved to disk
     # -------------------------------
     
-    #--------------- This first part trains a model using the BR=1 dataset
+    #--------------- This first part trains a model using the BR=2 dataset
     print("\n")
     print("(1) -------------- Extracting features from BR=2 case")
     produceTrainingFeatures(input_filename_r2, data_path=output_features_r2,

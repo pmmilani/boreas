@@ -123,7 +123,7 @@ def calculateFeatures(mfq, should_use):
     # this tells us how many of the total number of elements we use for predictions        
     n_useful = np.sum(should_use)
     
-    print("Out of {} total points, ".format(mfq.n_cells)
+    print("Out of {} total points, ".format(should_use.shape[0])
           + "{} have significant gradient and will be used".format(n_useful))
     print("Extracting features that will be used by ML model...")
     
@@ -174,7 +174,7 @@ def calculateFeaturesAndBasis(mfq, should_use):
     # this tells us how many of the total number of elements we use for predictions        
     n_useful = np.sum(should_use)
     
-    print("Out of {} total points, ".format(mfq.n_cells)
+    print("Out of {} total points, ".format(should_use.shape[0])
           + "{} have significant gradient and will be used".format(n_useful))
     print("Extracting features/basis that will be used by ML model...")
     
@@ -298,7 +298,9 @@ def cleanFeatures(x_features, should_use, tensor_basis=None, verbose=False):
         
 def fillPrt(Prt, should_use, default_prt):
     """
-    Takes in a 'skinny' Pr_t field and returns the full one
+    Takes in a Pr_t array with entries only in cells of significant gradient
+    and fills it up to have entries everywhere in the flow (default values in
+    other places of the flow).
     
     Arguments:
     Prt -- a numpy array of shape (n_useful, ) containing the turbulent Prandtl number
@@ -338,7 +340,9 @@ def fillPrt(Prt, should_use, default_prt):
 
 def fillAlpha(alphaij, should_use, default_prt):
     """
-    Takes in a 'skinny' alpha_ij field and returns the full one
+    Takes in an alpha_ij matrix with entries only in cells of significant gradient
+    and fills it up to have entries everywhere in the flow (default values in
+    other places of the flow).
     
     Arguments:
     alphaij -- a numpy array of shape (n_useful,3,3) containing the dimensionless
@@ -408,7 +412,7 @@ def calculateGamma(mfq, prt_cap, use_correction):
         # It gives higher weight when the mean velocity in that direction is lower.
         # See paper for equation.
         F1 = (np.sqrt(np.sum(mfq.uc**2, axis=1, keepdims=True))
-              + np.abs(mfq.U*np.expand_dims(mfq.T, axis=1)))
+              + np.abs(mfq.u*np.expand_dims(mfq.t, axis=1)))
         F = 1.0/F1 
         top = np.sum(F*mfq.uc*mfq.gradT, axis=1)
         bottom = np.sum(F*mfq.gradT*mfq.gradT, axis=1)
@@ -546,10 +550,10 @@ class MeanFlowQuantities:
     """
     This class holds numpy arrays that correspond to the different mean flow
     quantities of one particular dataset. Its data are used to calculate 
-    features, should_use, etc
+    features, should_use, gamma, u'c', etc
     """    
     
-    def __init__(self, zone, var_names, deltaT0):    
+    def __init__(self, zone, var_names, deltaT0=1, labels=False, mask=None):    
         """
         Constructor for MeanFlowQuantities class.
         
@@ -557,142 +561,110 @@ class MeanFlowQuantities:
         zone -- tecplot.data.zone containing the fluid zone, where the variables live
         var_names -- dictionary mapping default names to the actual variable names in the
                      present .plt file
-        deltaT0 -- scale to non-dimensionalize the temperature gradient
+        deltaT0 -- scale to non-dimensionalize the temperature gradient. Optional,
+                   when deltaT0=1 then it does not do anything to the dataset
+        labels -- optional, boolean flag which indicates if we are using this class to 
+                  calculate the features or to calculate the labels. By default, False
+                  which means we are calculating features only.
+        mask -- optional, array containing a mask to apply to all the arrays
+                extracted. If None, then no mask is used and all points are taken.
         """       
         
-        print("Loading data for feature calculation...", end="", flush=True)
-        self.n_cells = zone.num_elements # number of cell centers
+        # Print what we are doing
+        if labels: print("Loading data for label calculation...", end="", flush=True)
+        else: print("Loading data for feature calculation...", end="", flush=True)
         
-        # Velocity Gradients: dudx, dudy, dudz, dvdx, dydy, dydz, dwdx, dwdy, dwdz
-        self.gradU = np.empty((self.n_cells, 3, 3)) # this is a 3D array of size Nx3x3
-        self.gradU[:, 0, 0] = zone.values(var_names["ddx_U"]).as_numpy_array()
-        self.gradU[:, 1, 0] = zone.values(var_names["ddy_U"]).as_numpy_array()
-        self.gradU[:, 2, 0] = zone.values(var_names["ddz_U"]).as_numpy_array()
-        self.gradU[:, 0, 1] = zone.values(var_names["ddx_V"]).as_numpy_array()
-        self.gradU[:, 1, 1] = zone.values(var_names["ddy_V"]).as_numpy_array()
-        self.gradU[:, 2, 1] = zone.values(var_names["ddz_V"]).as_numpy_array()
-        self.gradU[:, 0, 2] = zone.values(var_names["ddx_W"]).as_numpy_array()
-        self.gradU[:, 1, 2] = zone.values(var_names["ddy_W"]).as_numpy_array()
-        self.gradU[:, 2, 2] = zone.values(var_names["ddz_W"]).as_numpy_array()
+        # Update mask ans save labels
+        if mask is None: # if no mask is provided, take all points
+            mask = np.ones(zone.num_elements, dtype=bool)        
+        self.n_points = np.sum(mask) # number of points used  
+        self.labels=labels
         
         # Temperature Gradients: dTdx, dTdy, dTdz
-        self.gradT = np.empty((self.n_cells, 3)) # this is a 2D array of size Nx3
-        self.gradT[:, 0] = zone.values(var_names["ddx_T"]).as_numpy_array()
-        self.gradT[:, 1] = zone.values(var_names["ddy_T"]).as_numpy_array()
-        self.gradT[:, 2] = zone.values(var_names["ddz_T"]).as_numpy_array()
+        self.gradT = np.empty((self.n_points, 3)) # this is a 2D array of size Nx3
+        self.gradT[:, 0] = zone.values(var_names["ddx_T"]).as_numpy_array()[mask]
+        self.gradT[:, 1] = zone.values(var_names["ddy_T"]).as_numpy_array()[mask]
+        self.gradT[:, 2] = zone.values(var_names["ddz_T"]).as_numpy_array()[mask]
         
-        # Other scalars: density, tke, epsilon, mu_t, mu, distance to wall
-        self.tke = zone.values(var_names["TKE"]).as_numpy_array()
-        self.epsilon = zone.values(var_names["epsilon"]).as_numpy_array()
-        self.rho  = zone.values(var_names["Density"]).as_numpy_array()
-        self.mu = zone.values(var_names["laminar viscosity"]).as_numpy_array()
-        self.mut = zone.values(var_names["turbulent viscosity"]).as_numpy_array()
-        self.d = zone.values(var_names["distance to wall"]).as_numpy_array()
+        self.rho  = zone.values(var_names["Density"]).as_numpy_array()[mask]
+        self.mut = zone.values(var_names["turbulent viscosity"]).as_numpy_array()[mask]
+        
+        # Variables only needed when extracting labels
+        if labels:
+            # Mean velocity: U, V, W
+            self.u = np.empty((self.n_points, 3)) # this is a 2D array of size Nx3
+            self.u[:, 0] = (zone.values(var_names["U"]).as_numpy_array())[mask]
+            self.u[:, 1] = (zone.values(var_names["V"]).as_numpy_array())[mask]
+            self.u[:, 2] = (zone.values(var_names["W"]).as_numpy_array())[mask]
+            
+            # u'c' vector
+            self.uc = np.empty((self.n_points, 3)) # this is a 2D array of size Nx3
+            self.uc[:, 0] = (zone.values(var_names["uc"]).as_numpy_array())[mask]
+            self.uc[:, 1] = (zone.values(var_names["vc"]).as_numpy_array())[mask]
+            self.uc[:, 2] = (zone.values(var_names["wc"]).as_numpy_array())[mask]
+            
+            self.t  = (zone.values(var_names["T"]).as_numpy_array())[mask]  
+        
+        # Variables only needed when calculating features
+        else:
+            # Velocity Gradients: dudx, dudy, dudz, dvdx, dydy, dydz, dwdx, dwdy, dwdz
+            self.gradU = np.empty((self.n_points, 3, 3)) # 3D array of size Nx3x3
+            self.gradU[:, 0, 0] = zone.values(var_names["ddx_U"]).as_numpy_array()[mask]
+            self.gradU[:, 1, 0] = zone.values(var_names["ddy_U"]).as_numpy_array()[mask]
+            self.gradU[:, 2, 0] = zone.values(var_names["ddz_U"]).as_numpy_array()[mask]
+            self.gradU[:, 0, 1] = zone.values(var_names["ddx_V"]).as_numpy_array()[mask]
+            self.gradU[:, 1, 1] = zone.values(var_names["ddy_V"]).as_numpy_array()[mask]
+            self.gradU[:, 2, 1] = zone.values(var_names["ddz_V"]).as_numpy_array()[mask]
+            self.gradU[:, 0, 2] = zone.values(var_names["ddx_W"]).as_numpy_array()[mask]
+            self.gradU[:, 1, 2] = zone.values(var_names["ddy_W"]).as_numpy_array()[mask]
+            self.gradU[:, 2, 2] = zone.values(var_names["ddz_W"]).as_numpy_array()[mask]
+                
+            # Other scalars: density, tke, epsilon, mu_t, mu, distance to wall
+            self.tke = zone.values(var_names["TKE"]).as_numpy_array()[mask]
+            self.epsilon = zone.values(var_names["epsilon"]).as_numpy_array()[mask]        
+            self.mu = zone.values(var_names["laminar viscosity"]).as_numpy_array()[mask]      
+            self.d = zone.values(var_names["distance to wall"]).as_numpy_array()[mask]
         
         # Non-dimensionalization done in different method
         self.nonDimensionalize(deltaT0)
         
         # Check that all variables have the correct size and range
-        self.sanityCheck()
+        self.check()
         
         print(" Done!")
         
     def nonDimensionalize(self, deltaT0):
         """
         This function is called to non-dimensionalize the temperature gradient.
-        """
+        """        
+        if not self.labels:       
+            self.gradT /= deltaT0        
         
-        self.gradT /= deltaT0
-        
-        
-    def sanityCheck(self):
+    def check(self):
         """
         This function contains assertions to check the current state of the dataset
         """        
-         
-        assert self.tke.size == self.n_cells, \
-               "Wrong number of entries for TKE. Check that it is cell centered."               
-        assert self.epsilon.size == self.n_cells, \
-               "Wrong number of entries for epsilon. Check that it is cell centered."
-        assert self.rho.size == self.n_cells, \
+        
+        assert self.rho.size == self.n_points, \
                "Wrong number of entries for rho. Check that it is cell centered."
-        assert self.mut.size == self.n_cells, \
+        assert self.mut.size == self.n_points, \
                "Wrong number of entries for mu_t. Check that it is cell centered."
-        assert self.mu.size == self.n_cells, \
-               "Wrong number of entries for mu. Check that it is cell centered."
-        assert self.d.size == self.n_cells, \
-               "Wrong number of entries for d. Check that it is cell centered."
-        
-        assert (self.tke >= 0).all(), "Found negative entries for tke!"
-        assert (self.epsilon >= 0).all(), "Found negative entries for epsilon!"
-        assert (self.rho >= 0).all(), "Found negative entries for rho!"
-        assert (self.mut >= 0).all(), "Found negative entries for mut!"
-        assert (self.mu >= 0).all(), "Found negative entries for mu!"
-        assert (self.d >= 0).all(), "Found negative entries for d!"
-        
-
-class MeanFlowQuantities_Prt:
-    """
-    This class holds numpy arrays that correspond to the different mean flow 
-    quantities of the dataset that are needed to calculate the "true" Pr_t at
-    training time.
-    """    
-    
-    def __init__(self, zone, var_names, should_use):    
-        """
-        Constructor for MeanFlowQuantities class.
-        
-        Arguments:
-        zone -- tecplot.data.zone containing the fluid zone, where the variables live
-        var_names -- dictionary mapping default names to the actual variable names in the
-                     present .plt file
-        should_use -- boolean array, indicating which cells have large enough
-                      gradient to work with. Used as a mask on the full dataset.   
-        """       
-        
-        print("Loading data for Pr-t calculation...", end="", flush=True)
-        self.n_useful = np.sum(should_use) # number of useful cells
-        
-        # Mean velocity: U, V, W
-        self.U = np.empty((self.n_useful, 3)) # this is a 2D array of size Nx3
-        self.U[:, 0] = (zone.values(var_names["U"]).as_numpy_array())[should_use]
-        self.U[:, 1] = (zone.values(var_names["V"]).as_numpy_array())[should_use]
-        self.U[:, 2] = (zone.values(var_names["W"]).as_numpy_array())[should_use]
-        
-        # Temperature Gradients: dTdx, dTdy, dTdz
-        self.gradT = np.empty((self.n_useful, 3)) # this is a 2D array of size Nx3
-        self.gradT[:, 0] = (zone.values(var_names["ddx_T"]).as_numpy_array())[should_use]
-        self.gradT[:, 1] = (zone.values(var_names["ddy_T"]).as_numpy_array())[should_use]
-        self.gradT[:, 2] = (zone.values(var_names["ddz_T"]).as_numpy_array())[should_use]
-        
-        # u'c' vector
-        self.uc = np.empty((self.n_useful, 3)) # this is a 2D array of size Nx3
-        self.uc[:, 0] = (zone.values(var_names["uc"]).as_numpy_array())[should_use]
-        self.uc[:, 1] = (zone.values(var_names["vc"]).as_numpy_array())[should_use]
-        self.uc[:, 2] = (zone.values(var_names["wc"]).as_numpy_array())[should_use]
-        
-        # Other scalars: T, rho, mu_t
-        self.T  = (zone.values(var_names["T"]).as_numpy_array())[should_use]
-        self.rho  = (zone.values(var_names["Density"]).as_numpy_array())[should_use]
-        self.mut = (zone.values(var_names["turbulent viscosity"]).as_numpy_array())[should_use]
-        
-        # Check that all variables have the correct size and range
-        self.sanityCheck()
-        
-        print("Done!")
-        
-    def sanityCheck(self):
-        """
-        This function contains assertions to check the current state of the dataset
-        """        
-        
-        assert self.T.size == self.n_useful, \
-               "Wrong number of entries for T"
-        assert self.rho.size == self.n_useful, \
-               "Wrong number of entries for rho"
-        assert self.mut.size == self.n_useful, \
-               "Wrong number of entries for mu_t"
-        
         assert (self.rho >= 0).all(), "Found negative entries for rho!"
         assert (self.mut >= 0).all(), "Found negative entries for mut!"
         
+        if self.labels:
+            assert self.t.size == self.n_points, \
+               "Wrong number of entries for T"        
+        else:
+            assert self.tke.size == self.n_points, \
+               "Wrong number of entries for TKE. Check that it is cell centered."               
+            assert self.epsilon.size == self.n_points, \
+                   "Wrong number of entries for epsilon. Check that it is cell centered."            
+            assert self.mu.size == self.n_points, \
+                   "Wrong number of entries for mu. Check that it is cell centered."
+            assert self.d.size == self.n_points, \
+                   "Wrong number of entries for d. Check that it is cell centered."            
+            assert (self.tke >= 0).all(), "Found negative entries for tke!"
+            assert (self.epsilon >= 0).all(), "Found negative entries for epsilon!"            
+            assert (self.mu >= 0).all(), "Found negative entries for mu!"
+            assert (self.d >= 0).all(), "Found negative entries for d!"

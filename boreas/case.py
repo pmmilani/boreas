@@ -794,10 +794,10 @@ class TrainingCase(Case):
         """
         super().__init__(filepath, zone, use_default_names) # performs regular initialization
         
-        self.initializeVarNames_uc(use_default_names); # adds extra variable names
+        self.initializeUcNames(use_default_names); # adds extra variable names
     
         
-    def initializeVarNames_uc(self, use_default_names=False):
+    def initializeUcNames(self, use_default_names=False):
         """
         Completes the dictionary containing the string names with u'c' variables.
         
@@ -859,8 +859,8 @@ class TrainingCase(Case):
         # This contains all info we need as arrays. The arrays are already
         # filtered according to should_use, so they have shape (n_useful,...)
         # This means that this function can only run after extractFeatures
-        mean_qts = process.MeanFlowQuantities_Prt(self._zone, self.var_names,
-                                                  self.should_use)
+        mean_qts = process.MeanFlowQuantities(self._zone, self.var_names, labels=True,
+                                              mask=self.should_use)
         
         # set to constants.py value if None is provided
         if prt_cap is None:

@@ -11,10 +11,8 @@ import os
 import pkg_resources
 import numpy as np
 import timeit
-import tensorflow as tf
 from boreas import constants
-from tbnns.main import TBNNS
-from tbnns.utils import suppressWarnings
+from tbnns.tbnns import TBNNS
 
 
 class MLModel:
@@ -66,7 +64,7 @@ class MLModel:
         print(self._description)
         
         
-class RFModel_Isotropic(MLModel):
+class RFModelIsotropic(MLModel):
     """
     This class is a diffusivity model that maps from local flow variables to a isotropic
     turbulent Prandtl number, using a Random Forest model.
@@ -202,7 +200,7 @@ class RFModel_Isotropic(MLModel):
         return Prt       
  
  
-class TBNNModel_Anisotropic(MLModel):
+class TBNNSModelAnisotropic(MLModel):
     """
     This class implements a model that predicts a tensorial (anisotropic) diffusivity
     using a tensor basis neural network (TBNN-s).
@@ -214,12 +212,11 @@ class TBNNModel_Anisotropic(MLModel):
         and suppresses the tensorflow warnings
         """ 
         
-        super().__init__() # performs regular initialization        
-        suppressWarnings()        
-        self._tfsession = None # will hold the tensorflow session
+        super().__init__() # performs regular initialization               
+        self._model = TBNNS() # holds the instance of the model
         
     
-    def loadFromDisk(self, filepath=None):
+    def loadFromDisk(self, filepath=None, verbose=False):
         """
         Loads a previously trained model from disk.
         
@@ -236,19 +233,24 @@ class TBNNModel_Anisotropic(MLModel):
                     the file containing the metadata AND a tensorflow checkpoint file
                     containing parameters. filepath holds the location of the former, 
                     which contains the location of the latter.
+        verbose -- optional, boolean flag indicating whether to print out model parameters
+                   and flags upon loading. False by default.
         """
         
-        default_model = False # this determines whether we are loading the default model
-        
         # if no path is provided, load the default model
-        if filepath is None:
-            default_model = True
+        if filepath is None:            
             path = 'data/defaultTBNNs.pckl' # location of the default model
-            filepath = pkg_resources.resource_filename(__name__, path)
-            
+            filepath = pkg_resources.resource_filename(__name__, path)            
             error_msg = ("When attempting to load the default TBNN-s model from disk," 
                          + " no file was found in path {}.".format(filepath)
                          + " Check your installation.")
+            
+            # this function is defined to correct the path where the tensorflow
+            # checkpoint containing parameters of the model are saved
+            def fn_modify(saved_path): 
+                saved_path = os.path.join('data',saved_path)
+                saved_path = pkg_resources.resource_filename(__name__, saved_path)
+                return saved_path
         
         # Here a path is provided (relative to the working directory), so just
         # load that file
@@ -256,23 +258,14 @@ class TBNNModel_Anisotropic(MLModel):
             error_msg = ("When attempting to load a custom TBNN-s model from disk, "
                          + "no file was found in path {}.".format(filepath) 
                          + " Make sure that the file exists.")
+            
+            fn_modify = None 
         
-        
-        assert os.path.isfile(filepath), error_msg # make sure the file exists  
-        
-        # saved as private variables or the class 
-        self._description, model_list = joblib.load(filepath)        
-        FLAGS, saved_path, feat_mean, feat_std = model_list
-        
-        # Now, initialize TBNN-s and load parameters.        
-        if default_model: # need to correct the directory is default model is loaded
-            saved_path = os.path.join('data',saved_path)
-            saved_path = pkg_resources.resource_filename(__name__, saved_path)            
-        self._model = TBNNS(FLAGS, saved_path, feat_mean, feat_std)
-        
-        self._tfsession = tf.Session()
-        
-        self._model.loadParameters(self._tfsession)
+        assert os.path.isfile(filepath), error_msg # make sure the file exists          
+                
+        # load model from disk and return the description 
+        self._description = self._model.loadFromDisk(filepath, verbose=verbose,
+                                                     fn_modify=fn_modify)
         
     
     def predict(self, x_features, tensor_basis):
@@ -300,8 +293,7 @@ class TBNNModel_Anisotropic(MLModel):
         
         print("ML model loaded: {}".format(self._description))
         print("Predicting tensor diffusivity using ML model...", flush=True)
-        alphaij, _ = self._model.getTotalDiffusivity(self._tfsession, x_features, 
-                                                     tensor_basis,
+        alphaij, _ = self._model.getTotalDiffusivity(x_features, tensor_basis,
                                                      prt_default=constants.PR_T,
                                                      gamma_min=1.0/constants.PRT_CAP)
         print("Done!")
@@ -317,4 +309,4 @@ class TBNNModel_Anisotropic(MLModel):
         """
         
         assert isinstance(self._model, TBNNS), "Model is not a TBNN-s!"       
-        self._model.printTrainableParams()
+        self._model.printModelInfo()

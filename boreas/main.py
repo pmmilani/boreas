@@ -8,7 +8,7 @@ implements all the functionality directly available to the user.
 import numpy as np
 import joblib
 from pkg_resources import get_distribution
-from boreas.models import RFModel_Isotropic, TBNNModel_Anisotropic
+from boreas.models import RFModelIsotropic, TBNNSModelAnisotropic
 from boreas.case import TestCase, TrainingCase
 from boreas import process
 from boreas import constants
@@ -32,7 +32,7 @@ def printInfo():
     
     # Try to load the default RF model and print information about it
     print('Attempting to load the default RF model...')
-    rf = RFModel_Isotropic()
+    rf = RFModelIsotropic()
     rf.loadFromDisk()
     print('Default model was found and can be loaded properly.')
     print('\t Description: ', end="", flush=True)
@@ -40,7 +40,7 @@ def printInfo():
     
     # Try to load the default TBNNS model and print information about it
     print('Attempting to load the default TBNN-s model...')
-    nn = TBNNModel_Anisotropic()
+    nn = TBNNSModelAnisotropic()
     nn.loadFromDisk()
     print('Default model was found and can be loaded properly.')
     print('\t Description: ', end="", flush=True)
@@ -186,7 +186,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
         
         # Initialize model from disk and predict turbulent Prandtl number. If 
         # model_path is None, just load the default model from disk. 
-        rf = RFModel_Isotropic()
+        rf = RFModelIsotropic()
         rf.loadFromDisk(model_path)
         prt_ML = rf.predict(x)
         
@@ -209,8 +209,8 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
         
         # Initialize model from disk and predict tensorial diffusivity. If 
         # model_path is None, just load the default model from disk. 
-        nn = TBNNModel_Anisotropic()
-        nn.loadFromDisk(model_path)
+        nn = TBNNSModelAnisotropic()
+        nn.loadFromDisk(model_path, verbose=True)
         alphaij_ML = nn.predict(x, tb)        
                 
         # Adds result to tecplot and sets the default variable names to output
@@ -426,7 +426,7 @@ def trainRFModel(features_list, description, model_path, *,
     y_total = np.concatenate(y_list, axis=0)
     
     # Here, we train and save the model
-    rf = RFModel_Isotropic()
+    rf = RFModelIsotropic()
     rf.train(x_total, y_total, description, model_path, 
              n_trees, max_depth, min_samples_split) 
     

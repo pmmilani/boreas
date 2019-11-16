@@ -57,7 +57,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                  features_load_path = None, features_dump_path = None,
                  ip_file_path = None, csv_file_path = None,
                  variables_to_write = None, outnames_to_write = None,                 
-                 model_path = None, model_type = "RF"):
+                 model_path = None, secondary_model_path = None, model_type = "RF"):
     """
     Applies ML model on a single test case, given in a Tecplot file.
     
@@ -146,16 +146,23 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                         them in Fluent.
     model_path -- optional argument. This is the path where the function will look for
                   a pre-trained machine learning model. The file must be a pickled
-                  instance of a random forest regressor class, saved to disk using 
-                  joblib. By default, the default machine learning model (which is
-                  already pre-trained with LES/DNS) is loaded, which comes
-                  together with the package.
+                  instance of a random forest regressor class or a pickled instance of
+                  the TBNN-s class, saved to disk using joblib. If None, the default
+                  machine learning model that comes with the package(which is already
+                  pre-trained with LES/DNS) is employed.
+    secondary_model_path -- optional argument. This is the path where the function will
+                            look for a pre-trained random forest model to support the 
+                            TBNN-s model in the hybrid formulation. The file must be a
+                            pickled instance of a random forest regressor class, saved to
+                            disk using joblib. By default, the default RF is loaded. This
+                            argument is only relevant when model_type = "TBNNS_hybrid".
     model_type -- optional argument. This tells us which type of model we are loading.
                   It must be a string, and the currently supported options are "RF",
                   "TBNNS". The default option is "RF".
     """
     
-    assert model_type == "RF" or model_type == "TBNNS", "Invalid model_type received!"
+    assert model_type == "RF" or model_type == "TBNNS" or model_type == "TBNNS_hybrid", \
+            "Invalid model_type received!"
     
     # Initialize dataset and get scales for non-dimensionalization. The default behavior
     # is to ask the user for the names and the scales. Passing keyword arguments to this
@@ -199,7 +206,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
             outnames_to_write = ["uds-2"]
     
     # Here, run the code for applying TBNN model ("TBNNS")
-    else:
+    elif model_type == "TBNNS":
         # This line processes the dataset and returns the features and tensor basis
         # at each point in the dataset where gradients are significant.
         x, tb = dataset.extractFeaturesBases(threshold=threshold, 
@@ -216,6 +223,37 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
         # Adds result to tecplot and sets the default variable names to output
         varname = ["Axx", "Axy", "Axz", "Ayx", "Ayy", "Ayz", "Azx", "Azy", "Azz"]
         dataset.addTensorDiff(alphaij_ML, varname, default_prt)
+        if variables_to_write is None: 
+            variables_to_write = varname
+        if outnames_to_write is None: 
+            outnames_to_write = ["uds-2", "uds-3", "uds-4", "uds-5", "uds-6", "uds-7",
+                                 "uds-8", "uds-9", "uds-10"]
+    
+    # Here, run the code for applying TBNN-s + random forest model ("TBNNS_hybrid")
+    elif model_type == "TBNNS_hybrid":
+        # This line processes the dataset and returns the features and tensor basis
+        # at each point in the dataset where gradients are significant.
+        x, tb = dataset.extractFeaturesBases(threshold=threshold, 
+                                             features_load_path=features_load_path,
+                                             features_dump_path=features_dump_path,
+                                             clean_features=clean_features)
+        
+        # First, get a prediction from the TBNN-s model that is passed in
+        nn = TBNNSModelAnisotropic()
+        nn.loadFromDisk(model_path, verbose=True)
+        alphaij_ML = nn.predict(x, tb)
+
+        # Now, get a random forest prediction for the turbulent Prandtl number
+        rf = RFModelIsotropic()
+        rf.loadFromDisk(secondary_model_path)
+        prt_ML = rf.predict(x)
+        
+        # Combine alphaij_ML and prt_ML into a single diffusivity tensor
+        alphaij_mod = dataset.enforcePrt(alphaij_ML, prt_ML)
+        
+        # Adds result to tecplot and sets the default variable names to output
+        varname = ["Axx", "Axy", "Axz", "Ayx", "Ayy", "Ayz", "Azx", "Azy", "Azz"]
+        dataset.addTensorDiff(alphaij_mod, varname, default_prt)
         if variables_to_write is None: 
             variables_to_write = varname
         if outnames_to_write is None: 
@@ -401,7 +439,9 @@ def trainRFModel(features_list, description, model_path, *,
                   using it to train. If None (default), it will read the number from 
                   constants.py. If this number is more than 1, then it represents the
                   number of examples we want to save; if it is less than 1, it represents
-                  the ratio of all training examples we want to save.
+                  the ratio of all training examples we want to save. Can also be a list
+                  of numbers, in which case each number is applied to an element of
+                  features_list
     n_trees -- optional. Hyperparameter of the random forest, contains number of
                    trees to use. If None (default), reads value from constants.py
     max_depth -- optional. Hyperparameter of the random forest, contains maximum
@@ -416,9 +456,18 @@ def trainRFModel(features_list, description, model_path, *,
     # Reads the list of files provided for features/labels
     print("{} file(s) were provided and will be used".format(len(features_list)))
     x_list = []
-    y_list = []    
-    for file in features_list:        
-        x_features, gamma = process.loadTrainingFeatures(file, "RF", downsample)
+    y_list = []
+
+    if isinstance(downsample, list): # make sure list is the right size
+        assert len(downsample) == len(features_list), \
+           "downsample is a list, but it has the wrong number of entries!"
+           
+    for i, file in enumerate(features_list):
+        if isinstance(downsample, list): # if list, take each element sequentially
+            x_features, gamma = process.loadTrainingFeatures(file, "RF", downsample[i])
+        else:
+            x_features, gamma = process.loadTrainingFeatures(file, "RF", downsample)
+            
         x_list.append(x_features)
         y_list.append(gamma)             
     
@@ -427,6 +476,8 @@ def trainRFModel(features_list, description, model_path, *,
     
     # Here, we train and save the model
     rf = RFModelIsotropic()
-    rf.train(x_total, y_total, description, model_path, 
-             n_trees, max_depth, min_samples_split) 
+    rf.train(x_total, y_total, 
+             n_trees, max_depth, min_samples_split)
+    rf.save(description, model_path)
+
     

@@ -39,10 +39,18 @@ class MLModel:
     
     def train(self):
         """       
-        Trains a model to perform regression on y given x       
+        Trains the regression model given data from high fidelity simulation.      
         """
         print("Training method not implemented yet!")
         pass    
+    
+    
+    def save(self):
+        """       
+        Saves a trained model to disk so it can be used later. Call after train.
+        """        
+        print("Saving method not implemented yet!")
+        pass 
     
     
     def predict(self):    
@@ -111,7 +119,8 @@ class RFModelIsotropic(MLModel):
         assert isinstance(self._model, RandomForestRegressor), "Not a scikit-learn RF!"
 
     
-    def train(self, x, y, n_trees=None, max_depth=None, min_samples_split=None):
+    def train(self, x, y, n_trees=None, max_depth=None, min_samples_split=None, 
+              n_jobs=None):
         """       
         Trains a random forest model to regress on log(y) given x
         
@@ -122,11 +131,7 @@ class RFModelIsotropic(MLModel):
         Arguments:
         x -- numpy array containing the features at training points, of shape
              (n_useful, N_FEATURES). 
-        y -- numpy array containing labels gamma = 1/Prt, of shape (n_useful,)
-        description -- string containing a short, written description of the model,
-                       which is important when the model is loaded and used at a 
-                       later time.
-        savepath -- string containing the path in which the model is saved to disk
+        y -- numpy array containing labels gamma = 1/Prt, of shape (n_useful,)        
         n_trees -- optional. Hyperparameter of the random forest, contains number of
                    trees to use. If None (default), reads value from constants.py
         max_depth -- optional. Hyperparameter of the random forest, contains maximum
@@ -136,6 +141,10 @@ class RFModelIsotropic(MLModel):
                              minimum number of samples at a node required to split. Can
                              either be an int (number itself) or a float (ratio of total
                              examples). If None (default), reads value from constants.py
+        n_jobs -- optional. Number of processors to use when training the RF (notice that
+                  training is embarassingly parallel). If None (default behavior), then
+                  the value is read from constants.py. See manual for 
+                  RandomForestRegressor class; if this is -1, all processors are used.
         """
         
         # Run sanity checks first
@@ -149,12 +158,14 @@ class RFModelIsotropic(MLModel):
             max_depth = constants.MAX_DEPTH
         if min_samples_split is None:
             min_samples_split = constants.MIN_SPLIT
+        if n_jobs is None:
+            min_samples_split = constants.N_PROCESSORS
             
         # Initialize class with fresh estimator
         self._model = RandomForestRegressor(n_estimators=n_trees,
                                             max_depth=max_depth,
                                             min_samples_split=min_samples_split,
-                                            n_jobs=-1) # n_jobs=-1 means use all CPUs
+                                            n_jobs=n_jobs) # n_jobs=-1 means use all CPUs
         
         # Train and time
         print("Training Random Forest on {} points".format(x.shape[0]))

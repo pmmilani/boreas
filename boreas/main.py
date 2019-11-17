@@ -419,7 +419,8 @@ def produceTrainingFeatures(tecplot_in_path, *, data_path = None,
 
 def trainRFModel(features_list, description, model_path, *,
                  downsample = None,
-                 n_trees = None, max_depth = None, min_samples_split = None):
+                 n_trees = None, max_depth = None, min_samples_split = None,
+                 n_jobs = None):
     """
     Trains a random forest models and saves it to disk.
     
@@ -450,7 +451,11 @@ def trainRFModel(features_list, description, model_path, *,
     min_samples_split -- optional. Hyperparameter of the random forest, contains
                          minimum number of samples at a node required to split. Can
                          either be an int (number itself) or a float (ratio of total
-                         examples). If None (default), reads value from constants.py    
+                         examples). If None (default), reads value from constants.py
+    n_jobs -- optional. Number of processors to use when training the RF (notice that
+              training is embarassingly parallel). If None (default behavior), then
+              the value is read from constants.py. See manual for 
+              RandomForestRegressor class; if this is -1, all processors are used.
     """
     
     # Reads the list of files provided for features/labels
@@ -476,8 +481,7 @@ def trainRFModel(features_list, description, model_path, *,
     
     # Here, we train and save the model
     rf = RFModelIsotropic()
-    rf.train(x_total, y_total, 
-             n_trees, max_depth, min_samples_split)
+    rf.train(x_total, y_total, n_trees, max_depth, min_samples_split, n_jobs)
     rf.save(description, model_path)
 
     

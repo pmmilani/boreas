@@ -31,6 +31,6 @@ PROTOCOL = -1
 
 # Default parameters for training random forests
 N_TREES = 200 # number of trees to use in the random forest
-MAX_DEPTH = 20 # max depth of tree
+MAX_DEPTH = 30 # max depth of tree
 MIN_SPLIT = 0.0001 # only split if the node has more than MIN_SPLIT * N points
 N_PROCESSORS = -1 # how many processors used when training the ML algorithm.

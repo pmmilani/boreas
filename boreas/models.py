@@ -162,7 +162,7 @@ class RFModelIsotropic(MLModel):
         if n_jobs is None:
             min_samples_split = constants.N_PROCESSORS
         
-        with parallel_backend('loky'): # need this for parallelism to work on Linux
+        with parallel_backend('multiprocessing'):
             # Initialize class with fresh estimator
             self._model = RandomForestRegressor(n_estimators=n_trees,
                                                 max_depth=max_depth,
@@ -178,7 +178,7 @@ class RFModelIsotropic(MLModel):
             tic=timeit.default_timer() # timing
             self._model.fit(x, np.log(y))
             toc=timeit.default_timer()        
-            print(" Done! It took {:.5f} min".format((toc - tic)/60.0))
+            print(" Done! It took {:.3f} min".format((toc - tic)/60.0))
     
 
     def save(self, description, savepath):
@@ -222,7 +222,8 @@ class RFModelIsotropic(MLModel):
         
         print("ML model loaded: {}".format(self._description))
         print("Predicting Pr-t using RF model...", end="", flush=True)
-        y = self._model.predict(x)
+        with parallel_backend('multiprocessing'):
+            y = self._model.predict(x)
         prt = 1.0/np.exp(y)
         print(" Done!")
         return prt      

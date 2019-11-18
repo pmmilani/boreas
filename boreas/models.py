@@ -13,6 +13,7 @@ import numpy as np
 import timeit
 from boreas import constants
 from tbnns.tbnns import TBNNS
+from joblib import Parallel, parallel_backend
 
 
 class MLModel:
@@ -160,22 +161,24 @@ class RFModelIsotropic(MLModel):
             min_samples_split = constants.MIN_SPLIT
         if n_jobs is None:
             min_samples_split = constants.N_PROCESSORS
-            
-        # Initialize class with fresh estimator
-        self._model = RandomForestRegressor(n_estimators=n_trees,
-                                            max_depth=max_depth,
-                                            min_samples_split=min_samples_split,
-                                            n_jobs=n_jobs) # n_jobs=-1 means use all CPUs
         
-        # Train and time
-        print("Training Random Forest on {} points".format(x.shape[0]))
-        print("n_trees={}, max_depth={}, min_samples_split={}".format(n_trees,max_depth,
+        with parallel_backend('loky'): # need this for parallelism to work on Linux
+            # Initialize class with fresh estimator
+            self._model = RandomForestRegressor(n_estimators=n_trees,
+                                                max_depth=max_depth,
+                                                min_samples_split=min_samples_split,
+                                                n_jobs=n_jobs)
+            
+            # Train and time
+            print("Training Random Forest on {} points".format(x.shape[0]))
+            print("n_trees={}, max_depth={}, min_samples_split={}".format(n_trees,
+                                                                        max_depth,
                                                                       min_samples_split))
-        print("This may take several hours. Training...", end="", flush=True)
-        tic=timeit.default_timer() # timing
-        self._model.fit(x, np.log(y))
-        toc=timeit.default_timer()        
-        print(" Done! It took {:.1f} min".format((toc - tic)/60.0))
+            print("This may take several hours. Training...", end="", flush=True)
+            tic=timeit.default_timer() # timing
+            self._model.fit(x, np.log(y))
+            toc=timeit.default_timer()        
+            print(" Done! It took {:.5f} min".format((toc - tic)/60.0))
     
 
     def save(self, description, savepath):

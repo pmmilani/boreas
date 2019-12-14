@@ -222,10 +222,12 @@ class RFModelIsotropic(MLModel):
         
         print("ML model loaded: {}".format(self._description))
         print("Predicting Pr-t using RF model...", end="", flush=True)
+        tic=timeit.default_timer() # timing
         with parallel_backend('multiprocessing'):
             y = self._model.predict(x)
         prt = 1.0/np.exp(y)
-        print(" Done!")
+        toc=timeit.default_timer()        
+        print(" Done! It took {:.3f} min".format((toc - tic)/60.0))
         return prt      
  
  

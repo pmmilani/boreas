@@ -158,7 +158,7 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                             argument is only relevant when model_type = "TBNNS_hybrid".
     model_type -- optional argument. This tells us which type of model we are loading.
                   It must be a string, and the currently supported options are "RF",
-                  "TBNNS". The default option is "RF".
+                  "TBNNS", and "TBNNS_hybrid". The default option is "RF".
     """
     
     assert model_type == "RF" or model_type == "TBNNS" or model_type == "TBNNS_hybrid", \
@@ -348,11 +348,11 @@ def produceTrainingFeatures(tecplot_in_path, *, data_path = None,
     prt_cap -- optional, contains the (symmetric) cap on the value of Pr_t. If None,
                then use the value in constants.py. If this value is 100, for example,
                then 0.01 < Pr_t < 100, and values outside of this range are capped.
-    use_correction -- optional. If True, use the correction defined in 
-                      Milani, Ling, Eaton (JTM 2020). That correction only makes
-                      sense if training data is on a fixed reference frame (it breaks
-                      Galilean invariance), so it is turned off by default. However,
-                      it can improve results in some cases.
+    gamma_correction -- optional. If True, use the correction defined in 
+                        Milani, Ling, Eaton (JTM 2020). That correction only makes
+                        sense if training data is on a fixed reference frame (it breaks
+                        Galilean invariance), so it is turned off by default. However,
+                        it can improve results in some cases.
     downsample -- optional, number that controls how we downsample the data before
                   saving it to disk. If None (default), it will read the number from 
                   constants.py. If this number is more than 1, then it represents the

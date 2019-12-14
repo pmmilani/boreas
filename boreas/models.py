@@ -160,7 +160,7 @@ class RFModelIsotropic(MLModel):
         if min_samples_split is None:
             min_samples_split = constants.MIN_SPLIT
         if n_jobs is None:
-            min_samples_split = constants.N_PROCESSORS
+            n_jobs = constants.N_PROCESSORS
         
         with parallel_backend('multiprocessing'):
             # Initialize class with fresh estimator

@@ -13,6 +13,7 @@ import numpy as np
 import timeit
 from boreas import constants
 from tbnns.tbnns import TBNNS
+from joblib import Parallel, parallel_backend
 
 
 class MLModel:
@@ -39,10 +40,18 @@ class MLModel:
     
     def train(self):
         """       
-        Trains a model to perform regression on y given x       
+        Trains the regression model given data from high fidelity simulation.      
         """
         print("Training method not implemented yet!")
         pass    
+    
+    
+    def save(self):
+        """       
+        Saves a trained model to disk so it can be used later. Call after train.
+        """        
+        print("Saving method not implemented yet!")
+        pass 
     
     
     def predict(self):    
@@ -111,8 +120,8 @@ class RFModelIsotropic(MLModel):
         assert isinstance(self._model, RandomForestRegressor), "Not a scikit-learn RF!"
 
     
-    def train(self, x, y, description, savepath,
-              n_trees=None, max_depth=None, min_samples_split=None):
+    def train(self, x, y, n_trees=None, max_depth=None, min_samples_split=None, 
+              n_jobs=None):
         """       
         Trains a random forest model to regress on log(y) given x
         
@@ -123,11 +132,7 @@ class RFModelIsotropic(MLModel):
         Arguments:
         x -- numpy array containing the features at training points, of shape
              (n_useful, N_FEATURES). 
-        y -- numpy array containing labels gamma = 1/Prt, of shape (n_useful,)
-        description -- string containing a short, written description of the model,
-                       which is important when the model is loaded and used at a 
-                       later time.
-        savepath -- string containing the path in which the model is saved to disk
+        y -- numpy array containing labels gamma = 1/Prt, of shape (n_useful,)        
         n_trees -- optional. Hyperparameter of the random forest, contains number of
                    trees to use. If None (default), reads value from constants.py
         max_depth -- optional. Hyperparameter of the random forest, contains maximum
@@ -137,6 +142,10 @@ class RFModelIsotropic(MLModel):
                              minimum number of samples at a node required to split. Can
                              either be an int (number itself) or a float (ratio of total
                              examples). If None (default), reads value from constants.py
+        n_jobs -- optional. Number of processors to use when training the RF (notice that
+                  training is embarassingly parallel). If None (default behavior), then
+                  the value is read from constants.py. See manual for 
+                  RandomForestRegressor class; if this is -1, all processors are used.
         """
         
         # Run sanity checks first
@@ -150,27 +159,46 @@ class RFModelIsotropic(MLModel):
             max_depth = constants.MAX_DEPTH
         if min_samples_split is None:
             min_samples_split = constants.MIN_SPLIT
+        if n_jobs is None:
+            min_samples_split = constants.N_PROCESSORS
+        
+        with parallel_backend('multiprocessing'):
+            # Initialize class with fresh estimator
+            self._model = RandomForestRegressor(n_estimators=n_trees,
+                                                max_depth=max_depth,
+                                                min_samples_split=min_samples_split,
+                                                n_jobs=n_jobs)
             
-        # Initialize class with description and fresh estimator
-        self._description = description
-        self._model = RandomForestRegressor(n_estimators=n_trees,
-                                            max_depth=max_depth,
-                                            min_samples_split=min_samples_split,
-                                            n_jobs=-1) # n_jobs=-1 means use all CPUs
-        
-        # Train and time
-        print("Training Random Forest on {} points ({})".format(x.shape[0], description))
-        print("n_trees={}, max_depth={}, min_samples_split={}".format(n_trees,max_depth,
+            # Train and time
+            print("Training Random Forest on {} points".format(x.shape[0]))
+            print("n_trees={}, max_depth={}, min_samples_split={}".format(n_trees,
+                                                                        max_depth,
                                                                       min_samples_split))
-        print("This may take several hours. Training...", end="", flush=True)
-        tic=timeit.default_timer() # timing
-        self._model.fit(x, np.log(y))
-        toc=timeit.default_timer()        
-        print(" Done! It took {:.1f} min".format((toc - tic)/60.0))
+            print("This may take several hours. Training...", end="", flush=True)
+            tic=timeit.default_timer() # timing
+            self._model.fit(x, np.log(y))
+            toc=timeit.default_timer()        
+            print(" Done! It took {:.3f} min".format((toc - tic)/60.0))
+    
+
+    def save(self, description, savepath):
+        """       
+        Saves a trained random forest model to disk so it can be used later
         
+        Arguments:        
+        description -- string containing a short, written description of the model,
+                       which is important when the model is loaded and used at a 
+                       later time.
+        savepath -- string containing the path in which the model is saved to disk        
+        """
+        
+        self._description = description
+        print("Model description: {}".format(description), flush=True)
+        print("Saving RF to {}...".format(savepath), end="", flush=True)
         # Save model to disk in specified location
         joblib.dump([self._description, self._model], savepath, 
-                    compress=constants.COMPRESS, protocol=constants.PROTOCOL)    
+                    compress=constants.COMPRESS, protocol=constants.PROTOCOL)
+        print(" Done!", flush=True)
     
     
     def predict(self, x):    
@@ -185,7 +213,7 @@ class RFModelIsotropic(MLModel):
         x -- numpy array (num_useful, N_FEATURES) of features
         
         Returns:
-        y -- numpy array (num_useful,) for the turbulent Prandtl number predicted at
+        prt -- numpy array (num_useful,) for the turbulent Prandtl number predicted at
              each cell
         """       
         
@@ -193,11 +221,14 @@ class RFModelIsotropic(MLModel):
         assert x.shape[1] == constants.N_FEATURES, "Wrong number of features!"
         
         print("ML model loaded: {}".format(self._description))
-        print("Predicting Pr-t using ML model...", end="", flush=True)
-        y = self._model.predict(x)
-        Prt = 1.0/np.exp(y)
-        print(" Done!")
-        return Prt       
+        print("Predicting Pr-t using RF model...", end="", flush=True)
+        tic=timeit.default_timer() # timing
+        with parallel_backend('multiprocessing'):
+            y = self._model.predict(x)
+        prt = 1.0/np.exp(y)
+        toc=timeit.default_timer()        
+        print(" Done! It took {:.3f} min".format((toc - tic)/60.0))
+        return prt      
  
  
 class TBNNSModelAnisotropic(MLModel):
@@ -289,10 +320,10 @@ class TBNNSModelAnisotropic(MLModel):
         assert x_features.shape[1] == constants.N_FEATURES, "Wrong number of features!"
         assert tensor_basis.shape[1] == constants.N_BASIS, "Wrong number of tensor basis!"
         assert tensor_basis.shape[0] == x_features.shape[0], \
-                               "number of features and tensor basis do not match!"
+                               "number of features and tensor basis do not match!"               
         
         print("ML model loaded: {}".format(self._description))
-        print("Predicting tensor diffusivity using ML model...", flush=True)
+        print("Predicting tensor diffusivity using TBNN-s model...", flush=True)
         alphaij, _ = self._model.getTotalDiffusivity(x_features, tensor_basis,
                                                      prt_default=constants.PR_T,
                                                      gamma_min=1.0/constants.PRT_CAP)

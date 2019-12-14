@@ -6,6 +6,7 @@ in numpy arrays). These include calculating features, Pr_t, should_use, etc.
 
 # ------------ Import statements
 import tecplot
+import timeit
 import numpy as np
 import joblib
 from tqdm import tqdm # progress bar
@@ -440,8 +441,8 @@ def downsampleIdx(n_total, downsample):
     Arguments:
     n_total -- int, total size of the array in that dimensionalization
     downsample -- number that controls how we downsample the data
-                  before saving it to disk. If None, it will read
-                  the number from constants.py. If this number is more than 1,
+                  before saving it to disk. If None, it is deactivated.
+                  If this number is more than 1,
                   then it represents the number of examples we want to save; if
                   it is less than 1, it represents the ratio of all training 
                   examples we want to save.
@@ -454,8 +455,9 @@ def downsampleIdx(n_total, downsample):
     idx_tot = np.arange(n_total)
     np.random.shuffle(idx_tot)
     
-    if downsample is None:
-        downsample = constants.DOWNSAMPLE
+    if downsample is None: # if downsample=None, deactivates downsampling
+        return idx_tot
+    
     assert downsample > 0, "downsample must be greater than 0!"
     
     if int(downsample) > 1:
@@ -487,8 +489,8 @@ def saveTrainingFeatures(training_list, model_type, filename, downsample):
     filename -- the location/name of the file where we save the features
                 and labels
     downsample -- number that controls how we downsample the data
-                  before saving it to disk. If None, it will read
-                  the number from constants.py. If this number is more than 1,
+                  before saving it to disk. If None, it is deactivated. 
+                  If this number is more than 1,
                   then it represents the number of examples we want to save; if
                   it is less than 1, it represents the ratio of all training 
                   examples we want to save.
@@ -520,8 +522,8 @@ def loadTrainingFeatures(file, model_type, downsample):
     file -- string containing the location of the file that will be read
     model_type -- string containing the model type, like "RF" or "TBNNS"
     downsample -- number that controls how we downsample the data
-                  before saving it to disk. If None, it will read
-                  the number from constants.py. If this number is more than 1,
+                  before saving it to disk. If None, it is deactivated. 
+                  If this number is more than 1,
                   then it represents the number of examples we want to save; if
                   it is less than 1, it represents the ratio of all training 
                   examples we want to save.
@@ -545,7 +547,7 @@ def loadTrainingFeatures(file, model_type, downsample):
     
     return training_list  
       
-    
+  
 class MeanFlowQuantities:
     """
     This class holds numpy arrays that correspond to the different mean flow
@@ -574,11 +576,11 @@ class MeanFlowQuantities:
         if labels: print("Loading data for label calculation...", end="", flush=True)
         else: print("Loading data for feature calculation...", end="", flush=True)
         
-        # Update mask ans save labels
+        # Update mask and save labels
         if mask is None: # if no mask is provided, take all points
             mask = np.ones(zone.num_elements, dtype=bool)        
         self.n_points = np.sum(mask) # number of points used  
-        self.labels=labels
+        self.labels = labels
         
         # Temperature Gradients: dTdx, dTdy, dTdz
         self.gradT = np.empty((self.n_points, 3)) # this is a 2D array of size Nx3

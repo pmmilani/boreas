@@ -12,6 +12,7 @@ import os
 import numpy as np
 from boreas import process
 from boreas import constants
+from tbnns.utils import cleanDiffusivity
 
 
 def getFloatFromUser(message):
@@ -497,7 +498,7 @@ class Case:
                 print("A valid path for the features was provided "
                       + "(path provided: {})".format(features_load_path))
                 print("They will be read from disk...", end="", flush=True)
-                model_type, data = joblib.load(features_load_path) 
+                model_type, data = joblib.load(features_load_path) # loads from disk
                 assert model_type == "TBNNS", "Features saved are from wrong model! " + \
                                           "Got '{}', expected 'TBNNS'".format(model_type)
                 self.x_features, self.tensor_basis, self.should_use = data                                
@@ -529,8 +530,7 @@ class Case:
                          self.tensor_basis) = process.cleanFeatures(self.x_features,
                                                                     self.should_use,
                                                                     self.tensor_basis)
-        #---- Finished calculating features    
-        
+        #---- Finished calculating features       
         
         # If a dump path is supplied, then save features to disk to disk
         if features_dump_path:
@@ -561,7 +561,7 @@ class Case:
                        Can be None, in which case default value is read from constants.py
         """
     
-        # First, create a diffusivity that is dimensional and available at every cell
+        # First, create a Prandtl number that is available at every cell
         Prt_full = process.fillPrt(prt, self.should_use, default_prt)
         
         # Creates a variable called "Prt_ML" and "should_use" everywhere
@@ -597,7 +597,59 @@ class Case:
 class TestCase(Case):
     """
     This class is holds the information of a single test case (just RANS simulation).
-    """   
+    """
+
+    def enforcePrt(self, alphaij, prt):
+        """
+        Combines the direction from tensorial diffusivity with magnitude from Pr_t
+        
+        Arguments:
+        alphaij -- numpy array shape (num_useful, 3, 3) with the dimensionless turbulent
+                   diffusivity matrix at each significant point of the domain.
+        prt -- numpy array shape (num_useful, ) with the value of turbulent Prandtl 
+               number predicted by an isotropic model (RF)
+
+        Returns:
+        alphaij_mod -- numpy array shape (num_useful, 3, 3) with the modified turbulent
+                       diffusivity, that takes Pr_t into account by scaling the tensor
+                       accordingly.        
+        """
+        
+        print("Modifying diffusivity tensor to enforce turbulent Prandtl number...", 
+              end="", flush=True)
+        
+        # Get gradc vector to determine appropriate induced norm
+        dcdx = self._zone.values(self.var_names["ddx_T"]).as_numpy_array()[self.should_use]
+        dcdy = self._zone.values(self.var_names["ddy_T"]).as_numpy_array()[self.should_use]
+        dcdz = self._zone.values(self.var_names["ddz_T"]).as_numpy_array()[self.should_use]
+        gradmag = dcdx**2 + dcdy**2 + dcdz**2
+        
+        # Spell out calculation of the induced two-norm of A given vector gradc
+        uc_predicted = (alphaij[:,0,0]*dcdx + alphaij[:,0,1]*dcdy + alphaij[:,0,2]*dcdz)
+        vc_predicted = (alphaij[:,1,0]*dcdx + alphaij[:,1,1]*dcdy + alphaij[:,1,2]*dcdz)
+        wc_predicted = (alphaij[:,2,0]*dcdx + alphaij[:,2,1]*dcdy + alphaij[:,2,2]*dcdz)
+        gamma_now = (uc_predicted*dcdx + vc_predicted*dcdy + wc_predicted*dcdz)/gradmag
+
+        # Gamma required is given by prt
+        gamma_desired = 1.0/prt
+        
+        # Clip both values of gamma (might be redundant, but just to be safe)
+        gamma_now = np.minimum(gamma_now, constants.PRT_CAP)
+        gamma_now = np.maximum(gamma_now, 1.0/constants.PRT_CAP)
+        gamma_desired = np.minimum(gamma_desired, constants.PRT_CAP)
+        gamma_desired = np.maximum(gamma_desired, 1.0/constants.PRT_CAP)
+        
+        # Calculate modified diffusivity
+        factor = np.reshape(gamma_desired/gamma_now, [-1, 1, 1])
+        alphaij_mod = alphaij * factor
+        print(" Done!")
+        
+        # Clean diffusivity, from tbnns.utils
+        alphaij_mod = cleanDiffusivity(alphaij_mod, prt_default=constants.PR_T,
+                                       gamma_min=1.0/constants.PRT_CAP, 
+                                       clip_elements=True)    
+    
+        return alphaij_mod
     
     def addTensorDiff(self, alphaij, varnames, default_prt):
         """

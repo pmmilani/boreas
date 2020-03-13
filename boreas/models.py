@@ -13,7 +13,105 @@ import numpy as np
 import timeit
 from boreas import constants
 from tbnns.tbnns import TBNNS
+from tbnns.utils import cleanDiffusivity
 from joblib import Parallel, parallel_backend
+
+
+def makePrediction(model_type, model_path, ensemble, x, tb=None, std_flag=False):
+    """
+    Predicts pr_t/alpha_ij from model specification and features. 
+    
+    This function constructs either the RF or TBNN-s class, loads
+    them from disk, and predicts the turbulent quantity using it. It
+    also uses a model ensemble if ensemble=True
+    
+    Arguments:
+    model_type -- string, either "RF" or "TBNNS"
+    model_path -- string or list, containing model path or list of model
+                  paths to be loaded
+    ensemble -- boolean, either True of False, determining whether a single instance
+                or a model ensemble should be used.
+    x -- numpy array containing features, shape (num_useful, ).
+    tb -- optional, numpy array containing tensor basis for prediction of shape
+          (num_useful, num_basis, 3, 3). Only used for TBNN-s model.
+    std_flag -- optional, boolean array that instructs the function to return the
+                standard deviation of the diffusivity INSTEAD of the diffusivity.
+                Only works when ensemble=True.
+    
+    Returns:
+    pr_t or alpha_ij -- numpy array (num_useful, ) or (num_useful, 3, 3) for the 
+                       machine-learned turbulence quantity.
+    """   
+    
+    if model_type == "RF":        
+        if ensemble:
+            num_models = len(model_path)
+            prt_mean = np.zeros((x.shape[0],))
+            prt_second_moment = np.zeros((x.shape[0],))
+            print("Ensemble of {} models will be used.".format(num_models))
+            
+            for model in model_path:            
+                rf = RFModelIsotropic()
+                rf.loadFromDisk(model)
+                prt = rf.predict(x)
+                prt_mean += (1.0/num_models) * prt
+                if std_flag: prt_second_moment += (1.0/num_models) * (prt**2)
+            
+            if std_flag: 
+                prt_ML = np.sqrt(prt_second_moment - prt_mean**2)
+            else:
+                prt_ML = prt_mean        
+        else:
+            # Initialize model from disk and predict turbulent Prandtl number. If 
+            # model_path is None, just load the default model from disk.
+            rf = RFModelIsotropic()
+            rf.loadFromDisk(model_path)
+            prt_ML = rf.predict(x)
+
+        if std_flag:
+            print("The standard deviation across the ensemble is returned!")
+            
+        return prt_ML
+    
+    elif model_type == "TBNNS":
+    
+        if ensemble:
+            num_models = len(model_path) 
+            alphaij_mean = np.zeros((x.shape[0], 3, 3))
+            alphaij_second_moment = np.zeros((x.shape[0], 3, 3))
+            print("Ensemble of {} models will be used.".format(num_models))
+            
+            for model in model_path:
+                nn = TBNNSModelAnisotropic()
+                nn.loadFromDisk(model, verbose=True)
+                alpha = nn.predict(x, tb, clean=False)                
+                alphaij_mean += (1.0/num_models) * alpha
+                if std_flag: alphaij_second_moment += (1.0/num_models) * (alpha**2)
+            
+            if std_flag: 
+                alphaij_ML = np.sqrt(alphaij_second_moment - alphaij_mean**2)
+            else:
+                alphaij_ML = alphaij_mean     
+                
+        else:            
+            # Initialize model from disk and predict tensorial diffusivity. If 
+            # model_path is None, just load the default model from disk. 
+            nn = TBNNSModelAnisotropic()
+            nn.loadFromDisk(model_path, verbose=True)
+            alphaij_ML = nn.predict(x, tb, clean=False)
+        
+        if std_flag:
+            print("The standard deviation across the ensemble is returned!")
+        if not std_flag:
+            # I set clean=False and only clean at the end to speed up the ensemble
+            x_star = (x - nn._model.features_mean) / nn._model.features_std # normalize
+            alphaij_ML = cleanDiffusivity(alphaij_ML, test_inputs=x_star, 
+                                          prt_default=constants.PR_T,
+                                          gamma_min=1.0/constants.PRT_CAP)                                      
+        return alphaij_ML
+    
+    else:
+        print("Error! model_type must be either 'RF' or 'TBNNS'")
 
 
 class MLModel:
@@ -299,7 +397,7 @@ class TBNNSModelAnisotropic(MLModel):
                                                      fn_modify=fn_modify)
         
     
-    def predict(self, x_features, tensor_basis):
+    def predict(self, x_features, tensor_basis, clean=True):
         """
         Predicts alpha_ij given the features using TBNN-s model. 
         
@@ -310,6 +408,7 @@ class TBNNSModelAnisotropic(MLModel):
         Arguments:
         x_features -- numpy array (num_useful, N_FEATURES) of features
         tensor_basis -- numpy array (num_useful, N_BASIS, 3, 3) of tensor basis
+        clean -- boolean, whether to clean the output diffusivity
         
         Returns:
         alphaij -- numpy array (num_useful, 3, 3) for the dimensionless tensor 
@@ -326,7 +425,8 @@ class TBNNSModelAnisotropic(MLModel):
         print("Predicting tensor diffusivity using TBNN-s model...", flush=True)
         alphaij, _ = self._model.getTotalDiffusivity(x_features, tensor_basis,
                                                      prt_default=constants.PR_T,
-                                                     gamma_min=1.0/constants.PRT_CAP)
+                                                     gamma_min=1.0/constants.PRT_CAP,
+                                                     clean=clean)
         print("Done!")
         
         return alphaij
@@ -340,4 +440,4 @@ class TBNNSModelAnisotropic(MLModel):
         """
         
         assert isinstance(self._model, TBNNS), "Model is not a TBNN-s!"       
-        self._model.printModelInfo()
+        self._model.printModelInfo()    

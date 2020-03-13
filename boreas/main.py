@@ -8,7 +8,7 @@ implements all the functionality directly available to the user.
 import numpy as np
 import joblib
 from pkg_resources import get_distribution
-from boreas.models import RFModelIsotropic, TBNNSModelAnisotropic
+from boreas.models import makePrediction
 from boreas.case import TestCase, TrainingCase
 from boreas import process
 from boreas import constants
@@ -57,7 +57,8 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                  features_load_path = None, features_dump_path = None,
                  ip_file_path = None, csv_file_path = None,
                  variables_to_write = None, outnames_to_write = None,                 
-                 model_path = None, secondary_model_path = None, model_type = "RF"):
+                 model_path = None, secondary_model_path = None, model_type = "RF",
+                 ensemble_of_models = False, std_ensemble = False):
     """
     Applies ML model on a single test case, given in a Tecplot file.
     
@@ -159,10 +160,26 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     model_type -- optional argument. This tells us which type of model we are loading.
                   It must be a string, and the currently supported options are "RF",
                   "TBNNS", and "TBNNS_hybrid". The default option is "RF".
+    ensemble_of_models -- optional argument. This is a boolean flag that tells us whether
+                          to use a model ensemble instead of a single model instance. If
+                          this is true, the model_path parameter must be a list of paths
+                          instead of a single path. The default option is "False"
+    std_ensemble -- optional argument. This is a boolean flag that instructs the solver
+                    to return the standard deviation across the ensemble of models. This
+                    can only be True if ensemble_of_models=True; in which case, we only
+                    return the standard deviation and not the actual diffusivity. This
+                    option only makes sense for the TBNN-s model (since the RF is already
+                    an ensemble) and is not supported for the hybrid model. The default
+                    option is "False"
     """
     
     assert model_type == "RF" or model_type == "TBNNS" or model_type == "TBNNS_hybrid", \
             "Invalid model_type received!"
+            
+    if ensemble_of_models: # check whether model_path is a list if model ensemble
+        assert type(model_path) is list, \
+            "Error! For a model ensemble, model_path must be a list"
+        assert len(model_path) > 0, "Error! model_path is an empty list!"
     
     # Initialize dataset and get scales for non-dimensionalization. The default behavior
     # is to ask the user for the names and the scales. Passing keyword arguments to this
@@ -191,11 +208,8 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                                     features_dump_path=features_dump_path,
                                     clean_features=clean_features)
         
-        # Initialize model from disk and predict turbulent Prandtl number. If 
-        # model_path is None, just load the default model from disk. 
-        rf = RFModelIsotropic()
-        rf.loadFromDisk(model_path)
-        prt_ML = rf.predict(x)
+        prt_ML = makePrediction("RF", model_path, ensemble_of_models, x, 
+                                std_flag=std_ensemble)
         
         # Adds result to tecplot and sets the default variable names to output
         varname = "Prt_ML"
@@ -214,11 +228,9 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                                              features_dump_path=features_dump_path,
                                              clean_features=clean_features)
         
-        # Initialize model from disk and predict tensorial diffusivity. If 
-        # model_path is None, just load the default model from disk. 
-        nn = TBNNSModelAnisotropic()
-        nn.loadFromDisk(model_path, verbose=True)
-        alphaij_ML = nn.predict(x, tb)        
+        # Return the diffusivity alphaij_ML
+        alphaij_ML = makePrediction("TBNNS", model_path, ensemble_of_models, x, tb,
+                                    std_flag=std_ensemble)
                 
         # Adds result to tecplot and sets the default variable names to output
         varname = ["Axx", "Axy", "Axz", "Ayx", "Ayy", "Ayz", "Azx", "Azy", "Azz"]
@@ -238,10 +250,8 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                                              features_dump_path=features_dump_path,
                                              clean_features=clean_features)
         
-        # First, get a prediction from the TBNN-s model that is passed in
-        nn = TBNNSModelAnisotropic()
-        nn.loadFromDisk(model_path, verbose=True)
-        alphaij_ML = nn.predict(x, tb)
+        # Return the diffusivity alphaij_ML
+        alphaij_ML = makePrediction("TBNNS", model_path, ensemble_of_models, x, tb)
 
         # Now, get a random forest prediction for the turbulent Prandtl number
         rf = RFModelIsotropic()

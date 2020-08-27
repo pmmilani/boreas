@@ -13,16 +13,22 @@ from tqdm import tqdm # progress bar
 from boreas import constants
 
 
-def calcInvariants(gradU, gradT, basis=False):
+def calcInvariants(S, R, gradT, with_tensor_basis=False, reduced=True):
     """
     This function calculates the invariant basis at one point.
 
     Arguments:
-    gradU -- 2D tensor with local velocity gradient (numpy array shape (3,3))
-    gradT -- array with local temperature gradient (numpy array shape (3,))
-    basis -- optional, a flag that determines whether to also calculate tensor basis.
-             By default, it is false (so only invariants are returned)
-    
+    S -- symmetric part of local velocity gradient (numpy array shape (3,3))
+    R -- anti-symmetric part of local velocity gradient (numpy array shape (3,3))
+    gradT -- array with local temperature gradient (numpy array shape (3,))    
+    with_tensor_basis -- optional, a flag that determines whether to also calculate
+                         tensor basis. By default, it is false (so only invariants 
+                         are returned)
+    reduced -- optional argument, a boolean flag that determines whether the features
+               that depend on a vector (lambda 7 thru lambda 13) should be calculated.
+               If reduced==True, extra features are NOT calculated. Default value is 
+               True.
+                     
     Returns:
     invariants -- array of shape (n_features-2,) that contains the invariant basis
                   from the gradient tensors that are used by the ML model to make a
@@ -35,16 +41,15 @@ def calcInvariants(gradU, gradT, basis=False):
       functions - A unified invariant approach to constitutive equations"
     """
 
-    S = (gradU + np.transpose(gradU)) # symmetric component
-    R = (gradU - np.transpose(gradU)) # anti-symmetric component
-     
     # For speed, pre-calculate these
     S2 = np.linalg.multi_dot([S, S])
     R2 = np.linalg.multi_dot([R, R])
     S_R2 = np.linalg.multi_dot([S, R2])    
     
-    ### Fill basis 0-12 
-    invariants = np.empty(constants.N_FEATURES-2)
+    ### Fill basis 0-12
+    if reduced: num_features = constants.NUM_FEATURES_F2-2        
+    else: num_features = constants.NUM_FEATURES_F1-2
+    invariants = np.empty(num_features)
     
     # Velocity gradient only (0-5)
     invariants[0] = np.trace(S2)
@@ -55,29 +60,27 @@ def calcInvariants(gradU, gradT, basis=False):
     invariants[5] = np.trace(np.linalg.multi_dot([S2, R2, S, R]))
     
     # Velocity + temperature gradients (6-12)
-    invariants[6] = np.linalg.multi_dot([gradT, gradT])
-    invariants[7] = np.linalg.multi_dot([gradT, S, gradT])
-    invariants[8] = np.linalg.multi_dot([gradT, S2, gradT])
-    invariants[9] = np.linalg.multi_dot([gradT, R2, gradT])
-    invariants[10] = np.linalg.multi_dot([gradT, S, R, gradT])
-    invariants[11] = np.linalg.multi_dot([gradT, S2, R, gradT])
-    invariants[12] = np.linalg.multi_dot([gradT, R, S_R2, gradT])
+    if not reduced:
+        invariants[6] = np.linalg.multi_dot([gradT, gradT])
+        invariants[7] = np.linalg.multi_dot([gradT, S, gradT])
+        invariants[8] = np.linalg.multi_dot([gradT, S2, gradT])
+        invariants[9] = np.linalg.multi_dot([gradT, R2, gradT])
+        invariants[10] = np.linalg.multi_dot([gradT, S, R, gradT])
+        invariants[11] = np.linalg.multi_dot([gradT, S2, R, gradT])
+        invariants[12] = np.linalg.multi_dot([gradT, R, S_R2, gradT])
     
     # Also calculate the tensor basis
-    if basis:
+    if with_tensor_basis:
         tensor_basis = np.empty((constants.N_BASIS,3,3))    
         tensor_basis[0,:,:] = np.eye(3)
         tensor_basis[1,:,:] = S
-        tensor_basis[2,:,:] = S2
-        tensor_basis[3,:,:] = R
+        tensor_basis[2,:,:] = R
+        tensor_basis[3,:,:] = S2
         tensor_basis[4,:,:] = R2
-        tensor_basis[5,:,:] = np.linalg.multi_dot([S, R]) + np.linalg.multi_dot([R, S])
-        
+        tensor_basis[5,:,:] = np.linalg.multi_dot([S, R]) + np.linalg.multi_dot([R, S])        
         return invariants, tensor_basis
     
-    # Just return the scalar invariants
-    else:   
-        return invariants
+    return invariants
     
     
 def calculateShouldUse(mfq, threshold):
@@ -106,7 +109,7 @@ def calculateShouldUse(mfq, threshold):
     return should_use
     
 
-def calculateFeatures(mfq, should_use):
+def calculateFeatures(mfq, should_use, with_tensor_basis=False, features_type="F2"):
     """
     This function calculates the ML features for this dataset. 
     
@@ -114,101 +117,79 @@ def calculateFeatures(mfq, should_use):
     mfq -- instance of MeanFlowQuantities class containing necessary arrays to
               calculate should_use
     should_use -- boolean array, indicating which cells have large enough
-                  gradient to work with. Used as a mask on the full dataset.   
-                 
-    Returns:
-    x_features -- array of shape (n_useful, n_features) that contains the features
-                  that are used by the ML model to make a prediction at each point.
-    """
-    
-    # this tells us how many of the total number of elements we use for predictions        
-    n_useful = np.sum(should_use)
-    
-    print("Out of {} total points, ".format(should_use.shape[0])
-          + "{} have significant gradient and will be used".format(n_useful))
-    print("Extracting features that will be used by ML model...")
-    
-    # this is the feature vector
-    x_features = np.empty((n_useful, constants.N_FEATURES))         
-            
-    # Non-dimensionalize in bulk and select only the points where should_use is true
-    gradU_factor = 0.5*mfq.tke[should_use]/mfq.epsilon[should_use]
-    gradT_factor = (mfq.tke[should_use]**(1.5)/mfq.epsilon[should_use])
-    gradU_temporary = mfq.gradU[should_use,:,:]*gradU_factor[:,None,None]
-    gradT_temporary = mfq.gradT[should_use,:]*gradT_factor[:,None]
-    
-    # Loop only where should_use is true to extract invariant basis
-    # tqdm wraps around the iterable and generates a progress bar
-    for i in tqdm(range(n_useful)): 
-        x_features[i, 0:constants.N_FEATURES-2] = calcInvariants(gradU_temporary[i,:,:],
-                                                                 gradT_temporary[i,:])            
-    
-    # Add last two scalars to the features (distance to wall and nu_t/nu)
-    Re_wall = np.sqrt(mfq.tke[should_use])*mfq.d[should_use]*\
-                mfq.rho[should_use]/mfq.mu[should_use]
-    nut_over_nu = mfq.mut[should_use]/mfq.mu[should_use]    
-    x_features[:, constants.N_FEATURES-2] = Re_wall
-    x_features[:, constants.N_FEATURES-1] = nut_over_nu            
-    
-    print("Done!")
-            
-    return x_features # return the features, only where should_use == true
-    
-
-def calculateFeaturesAndBasis(mfq, should_use):
-    """
-    This function calculates the ML features and tensor basis for this dataset. 
-    
-    Arguments:
-    mfq -- instance of MeanFlowQuantities class containing necessary arrays to
-              calculate should_use
-    should_use -- boolean array, indicating which cells have large enough
-                  gradient to work with. Used as a mask on the full dataset.   
-                 
+                  gradient to work with. Used as a mask on the full dataset.    
+    with_tensor_basis -- optional argument, boolean that determines whether we extract
+                         tensor basis together with features or not. Should be True when
+                         TBNN-s is employed. Default value is False.
+    features_type -- optional argument, string determining the type of features that
+                     we are currently extracting. Options are "F1" and "F2". Default
+                     value is "F2".
+                     
     Returns:
     x_features -- array of shape (n_useful, n_features) that contains the features
                   that are used by the ML model to make a prediction at each point.
     tensor_basis -- array of shape (n_useful, n_basis, 3, 3) that contains the tensor
-                    basis calculate for this dataset.
+                    basis calculate for this dataset. If with_tensor_basis is False, this
+                    return value is just None.
     """
     
     # this tells us how many of the total number of elements we use for predictions        
     n_useful = np.sum(should_use)
     
     print("Out of {} total points, ".format(should_use.shape[0])
-          + "{} have significant gradient and will be used".format(n_useful))
-    print("Extracting features/basis that will be used by ML model...")
+          + "{} have significant gradient and will be used".format(n_useful))    
+    print("Extracting features that will be used by ML model...")
     
     # this is the feature vector
-    x_features = np.empty((n_useful, constants.N_FEATURES))
-    tensor_basis = np.empty((n_useful, constants.N_BASIS, 3, 3)) 
-            
+    if features_type=="F1": num_features = constants.NUM_FEATURES_F1        
+    elif features_type=="F2": num_features = constants.NUM_FEATURES_F2
+    x_features = np.empty((n_useful, num_features))
+                
     # Non-dimensionalize in bulk and select only the points where should_use is true
     gradU_factor = 0.5*mfq.tke[should_use]/mfq.epsilon[should_use]
-    gradT_factor = (mfq.tke[should_use]**(1.5)/mfq.epsilon[should_use])
     gradU_temporary = mfq.gradU[should_use,:,:]*gradU_factor[:,None,None]
-    gradT_temporary = mfq.gradT[should_use,:]*gradT_factor[:,None]
+    gradU_temporary_transp = np.transpose(gradU_temporary, (0,2,1))
+    S = gradU_temporary + gradU_temporary_transp
+    R = gradU_temporary - gradU_temporary_transp
+    
+    if features_type=="F1":
+        gradT_factor = (mfq.tke[should_use]**(1.5)/mfq.epsilon[should_use])    
+        gradT_temporary = mfq.gradT[should_use,:]*gradT_factor[:,None]
+    elif features_type=="F2":
+        gradT_temporary = np.zeros((n_useful, 3))
     
     # Loop only where should_use is true to extract invariant basis
     # tqdm wraps around the iterable and generates a progress bar
-    for i in tqdm(range(n_useful)): 
-        (x_features[i,0:constants.N_FEATURES-2],
-                tensor_basis[i,:,:,:]) = calcInvariants(gradU_temporary[i,:,:],
-                                                        gradT_temporary[i,:], basis=True)            
+    if with_tensor_basis:
+        tensor_basis = np.empty((n_useful, constants.N_BASIS, 3, 3))
+        for i in tqdm(range(n_useful)): 
+            (x_features[i,0:num_features-2],
+                    tensor_basis[i,:,:,:]) = calcInvariants(S[i,:,:], R[i,:,:],
+                                                            gradT_temporary[i,:], 
+                                                            with_tensor_basis,
+                                                            features_type=="F2")
+    else:
+        tensor_basis = None
+        for i in tqdm(range(n_useful)): 
+            x_features[i,0:num_features-2] = calcInvariants(S[i,:,:], R[i,:,:],
+                                                            gradT_temporary[i,:], 
+                                                            with_tensor_basis,
+                                                            features_type=="F2")
+        
     
     # Add last two scalars to the features (distance to wall and nu_t/nu)
     Re_wall = np.sqrt(mfq.tke[should_use])*mfq.d[should_use]*\
                 mfq.rho[should_use]/mfq.mu[should_use]
     nut_over_nu = mfq.mut[should_use]/mfq.mu[should_use]    
-    x_features[:, constants.N_FEATURES-2] = Re_wall
-    x_features[:, constants.N_FEATURES-1] = nut_over_nu            
+    x_features[:, num_features-2] = Re_wall
+    x_features[:, num_features-1] = nut_over_nu            
     
     print("Done!")
             
-    return x_features, tensor_basis # return the features and tensor basis
+    return x_features, tensor_basis
     
 
-def cleanFeatures(x_features, should_use, tensor_basis=None, verbose=False):
+def cleanFeatures(x_features, tensor_basis, should_use, verbose=False):
     """
     This function removes outlier points from consideration.
     
@@ -220,16 +201,17 @@ def cleanFeatures(x_features, should_use, tensor_basis=None, verbose=False):
     x_features -- numpy array containing the features x (shape: n_useful,N_FEATURES)
     should_use -- boolean array, indicating which cells have large enough
                   gradient to work with. Used as a mask on the full dataset.
-    tensor_basis -- optional argument, numpy array containing the tensor basis. This
+    tensor_basis -- numpy array containing the tensor basis. This
                     should be passed when the anisotropic model is employed, but
-                    is irrelevant for the RF models (shape: n_useful,N_BASIS,3,3)
+                    is irrelevant for the RF models (shape: n_useful,N_BASIS,3,3). This
+                    can also be None, in case we are using an isotropic model.
     verbose -- optional argument, parameter for ISDOD. Controls whether the execution is
                verbose or not.
 
     Returns:
     new_x_features -- new version of x_features with only clean points
-    new_should_use -- new version of should_use with only clean points
     new_tensor_basis -- new version of tensor_basis with only clean points
+    new_should_use -- new version of should_use with only clean points
     """
     
     # Hyperparameters, defined in constants.py    
@@ -262,7 +244,8 @@ def cleanFeatures(x_features, should_use, tensor_basis=None, verbose=False):
         
         # Calculate how many examples are cleaned and break if not changing
         new_cleaned_exs = x_features.shape[0] - np.sum(mask)
-        if cleaned_exs is not None and (new_cleaned_exs - cleaned_exs)/cleaned_exs < tol:
+        if new_cleaned_exs == 0 or \
+         (cleaned_exs is not None and (new_cleaned_exs - cleaned_exs)/cleaned_exs < tol):
             cleaned_exs = new_cleaned_exs
             warning_flag = False
             break
@@ -291,10 +274,10 @@ def cleanFeatures(x_features, should_use, tensor_basis=None, verbose=False):
     # Return different number of arguments depending on whether a tensor_basis array
     # was passed as an argument
     if tensor_basis is None:
-        return new_x_features, new_should_use
+        return new_x_features, None, new_should_use
     else:
         new_tensor_basis = tensor_basis[mask,:,:,:]
-        return new_x_features, new_should_use, new_tensor_basis
+        return new_x_features, new_tensor_basis, new_should_use 
         
         
 def fillPrt(Prt, should_use, default_prt):
@@ -327,7 +310,7 @@ def fillPrt(Prt, should_use, default_prt):
     
     # Set default value of Pr_t
     if default_prt is None:
-        default_prt = constants.PR_T
+        default_prt = constants.PRT_DEFAULT
     assert default_prt > 0, "default_prt must be a positive floating point number!"
     
     # Use Reynolds analogy everywhere first
@@ -346,15 +329,15 @@ def fillAlpha(alphaij, should_use, default_prt):
     other places of the flow).
     
     Arguments:
-    alphaij -- a numpy array of shape (n_useful,3,3) containing the dimensionless
+    alphaij -- a numpy array of shape (num_useful,3,3) containing the dimensionless
                diffusivity tensor at each cell where should_use = True.
     should_use -- boolean array, indicating which cells have large enough
                   gradient to work with. Used as a mask on the full dataset.
     default_prt -- value for the default Pr_t to use where should_use == False.
-                       Can be None, in which case default value is read from constants.py
+                   Can be None, in which case default value is read from constants.py
                
     Returns:
-    alphaij_full -- a numpy array of shape (n_cells,3,3) containing a dimensionless
+    alphaij_full -- a numpy array of shape (num_cells,3,3) containing a dimensionless
                     turbulent diffusivity in every cell of the domain. In cells
                     where should_use == False, use an isotropic diffusivity based on
                     a fixed Pr_t given in constants.py, and zero off-diagonal entries.
@@ -375,7 +358,7 @@ def fillAlpha(alphaij, should_use, default_prt):
     
     # Set default value of Pr_t
     if default_prt is None:
-        default_prt = constants.PR_T
+        default_prt = constants.PRT_DEFAULT
     assert default_prt > 0, "default_prt must be a positive floating point number!"
     
     # Use Reynolds analogy everywhere first
@@ -387,6 +370,49 @@ def fillAlpha(alphaij, should_use, default_prt):
     alphaij_full[should_use,:,:] = alphaij       
     
     return alphaij_full
+
+    
+def fillG(g, should_use, default_prt):
+    """
+    Analogous to above function. Takes in a g array with entries only in cells of
+    significant gradient and fills it up to have entries everywhere in the flow 
+    (with default values in places of the flow without significant gradients)
+    
+    Arguments:
+    g -- a numpy array of shape (num_useful,num_basis) containing the dimensionless
+               diffusivity tensor at each cell where should_use = True.
+    should_use -- boolean array, indicating which cells have large enough
+                  gradient to work with. Used as a mask on the full dataset.
+    default_prt -- value for the default Pr_t to use where should_use == False.
+                   Can be None, in which case default value is read from constants.py
+               
+    Returns:
+    g_full -- a numpy array of shape (num_cells,num_basis) containing g in every cell of
+              the domain. In cells where should_use == False, use an isotropic
+              diffusivity based on default_prt.
+    """
+    
+    # Sizes from should_use
+    n_cells = should_use.shape[0]
+    n_useful = np.sum(should_use)   
+    
+    # make sure alphaij has right size and has non-negative diagonals
+    assert g.shape[0] == n_useful, "g has wrong number of entries!"
+    assert g.shape[1] == constants.N_BASIS, "g has wrong shape!"    
+    
+    # Set default value of Pr_t
+    if default_prt is None:
+        default_prt = constants.PRT_DEFAULT
+    assert default_prt > 0, "default_prt must be a positive floating point number!"
+    
+    # Use Reynolds analogy everywhere first
+    g_full = np.zeros((n_cells,constants.N_BASIS))
+    g_full[:,0] = 1.0/default_prt  
+    
+    # Fill in places where should_use is True with the predicted Prt_ML:
+    g_full[should_use,:] = g       
+    
+    return g_full
 
     
 def calculateGamma(mfq, prt_cap, use_correction):
@@ -475,7 +501,7 @@ def downsampleIdx(n_total, downsample):
     return idx 
     
     
-def saveTrainingFeatures(training_list, model_type, filename, downsample):
+def saveTrainingFeatures(training_list, metadata, filename, downsample):
     """
     Saves a .pckl file with the features and labels for training. Downsamples data
     if necessary
@@ -484,19 +510,18 @@ def saveTrainingFeatures(training_list, model_type, filename, downsample):
     training_list -- a list (of variable length) containing numpy arrays that
                      are required for training. We want to save all of them to
                      disk
-    model_type -- string containing the model type. This will be read and asserted
-                  when the present data is read for training       
+    metadata -- dictionary containing information about the saved data. This will be 
+                read and asserted when the present data is read for training       
     filename -- the location/name of the file where we save the features
                 and labels
     downsample -- number that controls how we downsample the data
                   before saving it to disk. If None, it is deactivated. 
-                  If this number is more than 1,
-                  then it represents the number of examples we want to save; if
-                  it is less than 1, it represents the ratio of all training 
-                  examples we want to save.
+                  If this number is more than 1, then it represents the number of
+                  examples we want to save; if it is less than 1, it represents
+                  the ratio of all training examples we want to save.
     """        
     
-    print("Saving features/labels to disk in file {}...".format(filename),
+    print("Saving features and labels to disk in file {}...".format(filename),
           end="", flush=True)
     
     # These lines implement downsampling
@@ -507,13 +532,13 @@ def saveTrainingFeatures(training_list, model_type, filename, downsample):
     for var in training_list:
         save_var.append(var[idx]) # downsample variable by variable
         
-    joblib.dump([model_type, save_var], filename, compress=constants.COMPRESS,
+    joblib.dump([metadata, save_var], filename, compress=constants.COMPRESS,
                 protocol=constants.PROTOCOL)
     
-    print(" Done!")              
+    print(" Done!")
  
 
-def loadTrainingFeatures(file, model_type, downsample):
+def loadTrainingFeatures(file, model_type, downsample, features_type):
     """
     Counterpart to saveTrainingFeatures, this function loads features and labels for
     training.
@@ -527,6 +552,8 @@ def loadTrainingFeatures(file, model_type, downsample):
                   then it represents the number of examples we want to save; if
                   it is less than 1, it represents the ratio of all training 
                   examples we want to save.
+    features_type -- string determining the type of features that
+                     we are currently extracting. Options are "F1" and "F2".
                   
     Returns:
     training_list -- a list (of variable length) containing numpy arrays that
@@ -534,18 +561,50 @@ def loadTrainingFeatures(file, model_type, downsample):
                      the model type.    
     """
     
-    model_type_disk, save_vars = joblib.load(file)
-    assert model_type == model_type_disk, "Features from the wrong model!"   
+    assert model_type == "RF" or model_type == "TBNNS" or model_type == "TBNNS_hybrid", \
+           "Invalid model_type received!"
     
+    # Load from disk, check features type, and prepare downsampling indices
+    metadata, save_vars = joblib.load(file)
+    assert metadata["features_type"] == features_type, "Loaded incorrect feature type!"
     n_points = save_vars[0].shape[0]
     idx = downsampleIdx(n_points, downsample) # downsampling
     
-    training_list = []
+    # Assert correct number of features and that all saved variables have same
+    # length (first dimension) 
+    if features_type=="F1": 
+        assert save_vars[0].shape[1] == constants.NUM_FEATURES_F1, \
+            "Wrong number of F1 features!"
+    if features_type=="F2": 
+        assert save_vars[0].shape[1] == constants.NUM_FEATURES_F2, \
+            "Wrong number of F2 features!"        
     for var in save_vars:
         assert var.shape[0] == n_points, "Wrong number of points in file {}".format(file)
-        training_list.append(var[idx])
     
-    return training_list  
+    # Gather required variables and return
+    if model_type=="RF":
+        assert metadata["with_gamma"]==True, "To train RF, we need gamma!"
+        x = save_vars[0][idx]
+        gamma = save_vars[-1][idx]
+        return x, gamma    
+    elif model_type=="TBNNS":
+        assert metadata["with_tensor_basis"]==True, "To train TBNN-s, we need tb!"
+        x = save_vars[0][idx]
+        tb = save_vars[1][idx]
+        uc = save_vars[2][idx]
+        gradT = save_vars[3][idx]
+        nut = save_vars[4][idx] 
+        return x, tb, uc, gradT, nut    
+    elif model_type=="TBNNS_hybrid":
+        assert metadata["with_gamma"]==True, "To train RF, we need gamma!"
+        assert metadata["with_tensor_basis"]==True, "To train TBNN-s, we need tb!"
+        x = save_vars[0][idx]
+        tb = save_vars[1][idx]
+        uc = save_vars[2][idx]
+        gradT = save_vars[3][idx]
+        nut = save_vars[4][idx]
+        gamma = save_vars[5][idx]
+        return x, tb, uc, gradT, nut, gamma    
       
   
 class MeanFlowQuantities:
@@ -555,7 +614,8 @@ class MeanFlowQuantities:
     features, should_use, gamma, u'c', etc
     """    
     
-    def __init__(self, zone, var_names, deltaT0=1, labels=False, mask=None):    
+    def __init__(self, zone, var_names, features_type="F2", deltaT0=1, 
+                 labels=False, mask=None):
         """
         Constructor for MeanFlowQuantities class.
         
@@ -563,6 +623,9 @@ class MeanFlowQuantities:
         zone -- tecplot.data.zone containing the fluid zone, where the variables live
         var_names -- dictionary mapping default names to the actual variable names in the
                      present .plt file
+        features_type -- optional argument, string containing the type of features we
+                         are going to produce. Options are "F1" or "F2"; "F1" is the
+                         standard, "F2" removes the temperature gradient features.
         deltaT0 -- scale to non-dimensionalize the temperature gradient. Optional,
                    when deltaT0=1 then it does not do anything to the dataset
         labels -- optional, boolean flag which indicates if we are using this class to 
@@ -582,12 +645,11 @@ class MeanFlowQuantities:
         self.n_points = np.sum(mask) # number of points used  
         self.labels = labels
         
-        # Temperature Gradients: dTdx, dTdy, dTdz
+        # Variables I need no matter what
         self.gradT = np.empty((self.n_points, 3)) # this is a 2D array of size Nx3
         self.gradT[:, 0] = zone.values(var_names["ddx_T"]).as_numpy_array()[mask]
         self.gradT[:, 1] = zone.values(var_names["ddy_T"]).as_numpy_array()[mask]
         self.gradT[:, 2] = zone.values(var_names["ddz_T"]).as_numpy_array()[mask]
-        
         self.rho  = zone.values(var_names["Density"]).as_numpy_array()[mask]
         self.mut = zone.values(var_names["turbulent viscosity"]).as_numpy_array()[mask]
         
@@ -625,10 +687,11 @@ class MeanFlowQuantities:
             self.tke = zone.values(var_names["TKE"]).as_numpy_array()[mask]
             self.epsilon = zone.values(var_names["epsilon"]).as_numpy_array()[mask]        
             self.mu = zone.values(var_names["laminar viscosity"]).as_numpy_array()[mask]      
-            self.d = zone.values(var_names["distance to wall"]).as_numpy_array()[mask]
+            self.d = zone.values(var_names["distance to wall"]).as_numpy_array()[mask]           
         
         # Non-dimensionalization done in different method
-        self.nonDimensionalize(deltaT0)
+        if features_type == "F1" and labels==False:
+            self.nonDimensionalize(deltaT0)
         
         # Check that all variables have the correct size and range
         self.check()

@@ -7,8 +7,9 @@ built so the user can just call 'pytest'
 import os
 import joblib
 import numpy as np
-from boreas.main import printInfo, applyMLModel, produceTrainingFeatures, trainRFModel
+from boreas.main import printInfo, applyMLModel, produceTrainingFeatures, trainRFModel, trainTBNNSModel
 from boreas import constants
+
 
 def test_print_info():
     """
@@ -46,7 +47,7 @@ def test_full_cycle_rf():
                             use_default_var_names = True, # variable names are default
                             write_derivatives = True, # cache derivatives
                             features_dump_path = feature_dump_r2, # save features to disk
-                            model_type = "RF")   
+                            model_type = "RF", features_type="F1")   
     
     # Use the features extracted before to train the RF model
     print("\n")
@@ -66,7 +67,7 @@ def test_full_cycle_rf():
                  features_load_path = feature_dump_r2, # load what we processed before
                  ip_file_path = ip_output_name_r2,
                  model_path = savepath, # path is the same we saved to previously
-                 model_type = "RF") # here we choose the model type    
+                 model_type = "RF", features_type="F1") # here we choose the model type    
     
     # Remove all files I just wrote to disk
     os.remove(output_features_r2)
@@ -76,7 +77,7 @@ def test_full_cycle_rf():
     os.remove(ip_output_name_r2)
     os.remove(savepath)
     
-
+    
 def test_full_cycle_tbnns():
     """
     This function runs the full boreas procedure on the sample coarse RANS simulation
@@ -86,50 +87,62 @@ def test_full_cycle_tbnns():
     # Make the path relative to the location of the present script
     dirname = os.path.dirname(__file__)        
     
-    # All relevant file names --    
-    input_file = os.path.join(dirname, "JICF_BR1_supercoarse_derivatives.plt")    
+    # All relevant file names -- 
+    input_file = os.path.join(dirname, "JICF_BR1_supercoarse_derivatives.plt")        
+    output_features_r1 = os.path.join(dirname, "JICF_BR1_supercoarse_trainingdata.pckl")    
     tecplot_filename_out_r1 = os.path.join(dirname, "JICF_BR1_supercoarse_out.plt") #output tecplot file
     feature_dump_r1 = os.path.join(dirname, "features_r1_tbnns.pckl")
     csv_output_name_r1 = os.path.join(dirname, "JICF_BR1_supercoarse_out.csv") #output csv file
     ip_output_name_r1 = os.path.join(dirname, "JICF_BR1_supercoarse_out.ip") #output ip file
-    test_model_path = os.path.join(dirname, "nn_test.pckl") # the custom model saved to disk
-    test_model_path_modified = os.path.join(dirname, "nn_test_2.pckl") # the custom model saved to disk
+    savepath = os.path.join(dirname, "nn_test.pckl") # the custom model saved to disk    
+    path_to_saver = os.path.join(dirname, "checkpoints/nn_test")
     # -------------------------    
     
     # (1) ------------- This part applies the default model to the BR=1 case
     print("\n")
-    print("Applying default anisotropic model on BR=1 case")   
+    print("(1) -------------- Applying default anisotropic model on BR=1 case")   
     applyMLModel(input_file, tecplot_filename_out_r1,
                  deltaT0 = 1, # Tmax-Tmin = 1 in this case
                  use_default_var_names = True, # variable names are default
                  calc_derivatives = False, # we are reading the derivatives file we just saved                 
                  features_dump_path = feature_dump_r1, # dump for future use
                  csv_file_path = csv_output_name_r1,                
-                 model_type = "TBNNS") # here we choose the model type
+                 model_type = "TBNNS", features_type="F2") # here we choose the model type
 
     # (2) ------------- This part applies the custom model to the BR=1 case
-    
-    # These lines are a little hack to make the path of checkpoints/ relative to the current location.
-    # We load the actual file and save a modified version of it, with the correct path.
-    description, model_list = joblib.load(test_model_path)        
-    FLAGS, saved_path, feat_mean, feat_std = model_list
-    saved_path = os.path.join(dirname, saved_path)
-    joblib.dump([description, [FLAGS, saved_path, feat_mean, feat_std]], test_model_path_modified)
-    
     print("\n")
-    print("Applying a custom anisotropic model on BR=1 case")   
+    print("(2) -------------- Produce training features for TBNN-s")
+    produceTrainingFeatures(input_file, data_path=output_features_r1,
+                            deltaT0 = 1, # Tmax-Tmin = 1 in this case
+                            use_default_var_names = True, # variable names are default
+                            calc_derivatives = False,
+                            write_derivatives = False, # cache derivatives
+                            features_load_path = feature_dump_r1, # save features to disk
+                            model_type = "TBNNS", features_type="F2")
+
+    # (3) ------------- Use the features extracted before to train the TBNN-s model
+    print("\n")
+    print("(3) -------------- Training model on extracted features")
+    feature_list = [output_features_r1,]
+    description = "Example TBNN-s model trained with supercoarse BR=1 LES"        
+    trainTBNNSModel(feature_list, feature_list, description, savepath, path_to_saver)    
+        
+    # (4) ------------- Use the features extracted before to train the TBNN-s model
+    print("\n")
+    print("(4) -------------- Applying a custom anisotropic model on BR=1 case")   
     applyMLModel(input_file, tecplot_filename_out_r1,
                  deltaT0 = 1, # Tmax-Tmin = 1 in this case
                  use_default_var_names = True, # variable names are default
                  calc_derivatives = False, # we are reading the derivatives file we just saved                 
                  features_load_path = feature_dump_r1, # load what we processed before
                  ip_file_path = ip_output_name_r1,
-                 model_path = test_model_path_modified,
-                 model_type = "TBNNS") # here we choose the model type 
+                 model_path = savepath,
+                 model_type = "TBNNS", features_type="F2") # here we choose the model type 
     
     # Remove all files I just wrote to disk
+    os.remove(output_features_r1)
     os.remove(tecplot_filename_out_r1)
     os.remove(feature_dump_r1)
     os.remove(csv_output_name_r1)
-    os.remove(ip_output_name_r1)
-    os.remove(test_model_path_modified)
+    os.remove(ip_output_name_r1)    
+    os.remove(savepath)     

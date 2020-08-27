@@ -11,13 +11,13 @@ with open("README.md", 'r') as f:
 
 setup(
    name='boreas',
-   version='1.3.0',
-   description='Boreas v1.3.0 - a package for industrial deployment of machine-learned turbulent mixing models for film cooling',
+   version='1.3.1',
+   description='Boreas v1.3.1 - a package for automated deployment of machine-learned turbulent mixing models for film cooling',
    license='Apache',
    long_description=long_description,
    author='Pedro M. Milani',
    author_email='pmmilani@stanford.edu',
    packages=['boreas'],  # same as name
-   install_requires=['pytecplot>=1.0.0', 'scikit-learn==0.21.3', 'tbnns==0.4.0', 'tqdm', 'pytest'], # dependencies
+   install_requires=['pytecplot>=1.0.0', 'scikit-learn==0.21.3', 'tbnns==0.5.0', 'tqdm', 'pytest'], # dependencies
    include_package_data=True
 )

@@ -1,7 +1,7 @@
-## Boreas v1.3.0 - a package for industrial deployment of machine-learned turbulent mixing models for film cooling (formerly known as RaFoFC)
+## Boreas v1.3.1 - a package for industrial deployment of machine-learned turbulent mixing models for film cooling (formerly known as RaFoFC)
 Author: Pedro M. Milani (email: pmmilani@stanford.edu)
 
-Last modified: 06/26/2020
+Last modified: 08/27/2020
 
 Developed and tested in Python 3.7
 

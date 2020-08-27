@@ -8,7 +8,7 @@ implements all the functionality directly available to the user.
 import numpy as np
 import joblib
 from pkg_resources import get_distribution
-from boreas.models import makePrediction
+from boreas.models import makePrediction, RFModelIsotropic, TBNNSModelAnisotropic
 from boreas.case import TestCase, TrainingCase
 from boreas import process
 from boreas import constants
@@ -57,7 +57,8 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
                  features_load_path = None, features_dump_path = None,
                  ip_file_path = None, csv_file_path = None,
                  variables_to_write = None, outnames_to_write = None,                 
-                 model_path = None, secondary_model_path = None, model_type = "RF",
+                 model_path = None, secondary_model_path = None, 
+                 model_type = "RF", features_type="F2",
                  ensemble_of_models = False, std_ensemble = False):
     """
     Applies ML model on a single test case, given in a Tecplot file.
@@ -160,6 +161,9 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     model_type -- optional argument. This tells us which type of model we are loading.
                   It must be a string, and the currently supported options are "RF",
                   "TBNNS", and "TBNNS_hybrid". The default option is "RF".
+    features_type -- optional argument, string determining the type of features that
+                     we are currently extracting. Options are "F1" and "F2". Default
+                     value is "F2".
     ensemble_of_models -- optional argument. This is a boolean flag that tells us whether
                           to use a model ensemble instead of a single model instance. If
                           this is true, the model_path parameter must be a list of paths
@@ -175,6 +179,8 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     
     assert model_type == "RF" or model_type == "TBNNS" or model_type == "TBNNS_hybrid", \
             "Invalid model_type received!"
+    assert features_type == "F1" or features_type == "F2", \
+            "Invalid features_type received!"
             
     if ensemble_of_models: # check whether model_path is a list if model ensemble
         assert type(model_path) is list, \
@@ -203,13 +209,12 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
         # This line processes the dataset and extracts features for the ML step which
         # can take a long time. features_load_path and features_dump_path can be
         # set to make the method load/save the processed quantities from disk.
-        x = dataset.extractFeatures(threshold=threshold, 
-                                    features_load_path=features_load_path,
-                                    features_dump_path=features_dump_path,
-                                    clean_features=clean_features)
-        
-        prt_ML = makePrediction("RF", model_path, ensemble_of_models, x, 
-                                std_flag=std_ensemble)
+        x, _ = dataset.extractFeatures(with_tensor_basis=False, 
+                                       features_type=features_type, threshold=threshold, 
+                                       features_load_path=features_load_path,
+                                       features_dump_path=features_dump_path,
+                                       clean_features=clean_features)        
+        prt_ML = makePrediction("RF", model_path, x, features_type)
         
         # Adds result to tecplot and sets the default variable names to output
         varname = "Prt_ML"
@@ -223,18 +228,21 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     elif model_type == "TBNNS":
         # This line processes the dataset and returns the features and tensor basis
         # at each point in the dataset where gradients are significant.
-        x, tb = dataset.extractFeaturesBases(threshold=threshold, 
-                                             features_load_path=features_load_path,
-                                             features_dump_path=features_dump_path,
-                                             clean_features=clean_features)
-        
-        # Return the diffusivity alphaij_ML
-        alphaij_ML = makePrediction("TBNNS", model_path, ensemble_of_models, x, tb,
-                                    std_flag=std_ensemble)
+        x, tb = dataset.extractFeatures(with_tensor_basis=True, 
+                                        features_type=features_type, threshold=threshold, 
+                                        features_load_path=features_load_path,
+                                        features_dump_path=features_dump_path,
+                                        clean_features=clean_features)        
+        alphaij_ML, g_ML = makePrediction("TBNNS", model_path, x, features_type, tb, 
+                                          ensemble=ensemble_of_models, 
+                                          std_flag=std_ensemble)
                 
         # Adds result to tecplot and sets the default variable names to output
-        varname = ["Axx", "Axy", "Axz", "Ayx", "Ayy", "Ayz", "Azx", "Azy", "Azz"]
+        varname = ["Dxx", "Dxy", "Dxz", "Dyx", "Dyy", "Dyz", "Dzx", "Dzy", "Dzz"]
         dataset.addTensorDiff(alphaij_ML, varname, default_prt)
+        g_name = ["g1", "g2", "g3", "g4", "g5", "g6"]
+        dataset.addG(g_ML, g_name, default_prt)
+        
         if variables_to_write is None: 
             variables_to_write = varname
         if outnames_to_write is None: 
@@ -245,25 +253,27 @@ def applyMLModel(tecplot_in_path, tecplot_out_path, *,
     elif model_type == "TBNNS_hybrid":
         # This line processes the dataset and returns the features and tensor basis
         # at each point in the dataset where gradients are significant.
-        x, tb = dataset.extractFeaturesBases(threshold=threshold, 
-                                             features_load_path=features_load_path,
-                                             features_dump_path=features_dump_path,
-                                             clean_features=clean_features)
-        
-        # Return the diffusivity alphaij_ML
-        alphaij_ML = makePrediction("TBNNS", model_path, ensemble_of_models, x, tb)
+        x, tb = dataset.extractFeatures(with_tensor_basis=True, 
+                                        features_type=features_type, threshold=threshold, 
+                                        features_load_path=features_load_path,
+                                        features_dump_path=features_dump_path,
+                                        clean_features=clean_features)        
+        alphaij_ML, g_ML = makePrediction("TBNNS", model_path, x, features_type, tb,
+                                          ensemble=ensemble_of_models, 
+                                          std_flag=std_ensemble)
 
         # Now, get a random forest prediction for the turbulent Prandtl number
-        rf = RFModelIsotropic()
-        rf.loadFromDisk(secondary_model_path)
-        prt_ML = rf.predict(x)
+        prt_ML = makePrediction("RF", secondary_model_path, x, features_type)        
         
         # Combine alphaij_ML and prt_ML into a single diffusivity tensor
         alphaij_mod = dataset.enforcePrt(alphaij_ML, prt_ML)
         
         # Adds result to tecplot and sets the default variable names to output
-        varname = ["Axx", "Axy", "Axz", "Ayx", "Ayy", "Ayz", "Azx", "Azy", "Azz"]
+        varname = ["Dxx", "Dxy", "Dxz", "Dyx", "Dyy", "Dyz", "Dzx", "Dzy", "Dzz"]
         dataset.addTensorDiff(alphaij_mod, varname, default_prt)
+        g_name = ["g1", "g2", "g3", "g4", "g5", "g6"]
+        dataset.addG(g_ML, g_name, default_prt)
+        
         if variables_to_write is None: 
             variables_to_write = varname
         if outnames_to_write is None: 
@@ -287,7 +297,7 @@ def produceTrainingFeatures(tecplot_in_path, *, data_path = None,
                             features_load_path = None, features_dump_path = None,
                             prt_cap = None, gamma_correction = False,
                             downsample = None, tecplot_out_path = None,
-                            model_type = "RF"):
+                            model_type = "RF", features_type="F2"):
                             
     """
     Produces features and labels from a single Tecplot file, used for training.
@@ -374,9 +384,13 @@ def produceTrainingFeatures(tecplot_in_path, *, data_path = None,
     model_type -- optional argument. This tells us which type of model we are loading.
                   It must be a string, and the currently supported options are "RF".
                   The default option is "RF".
+    features_type -- optional argument, string determining the type of features that
+                     we are currently extracting. Options are "F1" and "F2". Default
+                     value is "F2".
     """
     
-    assert model_type == "RF" or model_type == "TBNNS", "Invalid model_type received!"
+    assert model_type == "RF" or model_type == "TBNNS" or model_type == "TBNNS_hybrid", \
+           "Invalid model_type received!"
     
     # Initialize dataset and get scales for non-dimensionalization. The default behavior
     # is to ask the user for the names and the scales. Passing keyword arguments to this
@@ -395,28 +409,57 @@ def produceTrainingFeatures(tecplot_in_path, *, data_path = None,
         print("Derivatives already calculated!")
         dataset.addDerivativeNames(use_default_derivative_names)
     
+    metadata = {}
+    metadata["features_type"] = features_type
     if model_type == "RF":
         # This line processes the dataset and extracts features for the ML step which
         # can take a long time. features_load_path and features_dump_path can be
         # set to make the method load/save the processed quantities from disk.
-        x = dataset.extractFeatures(threshold=threshold, 
-                                    features_load_path=features_load_path,
-                                    features_dump_path=features_dump_path,
-                                    clean_features=clean_features)
+        x, _ = dataset.extractFeatures(with_tensor_basis=False, 
+                                       features_type=features_type, threshold=threshold, 
+                                       features_load_path=features_load_path,
+                                       features_dump_path=features_dump_path,
+                                       clean_features=clean_features)
+        gamma = dataset.extractGamma(prt_cap, gamma_correction) # gamma = 1/Prt
         
-        # Now, extract the value of gamma = 1/Prt
-        gamma = dataset.extractGamma(prt_cap, gamma_correction)
-        
-        training_list = [x, gamma]  # what is used from training     
+        training_list = [x, gamma]  # what is used for training
+        metadata["with_tensor_basis"]=False
+        metadata["with_gamma"]=True
         
         # Write the Tecplot data to disk with the extracted Prt_LES for sanity check
         if tecplot_out_path is not None:
             dataset.addPrt(1.0/gamma, "Prt_LES")
             dataset.saveDataset(tecplot_out_path)  
+    
+    elif model_type == "TBNNS":
+        # This line processes the dataset and returns the features and tensor basis
+        # at each point in the dataset where gradients are significant.
+        x, tb = dataset.extractFeatures(with_tensor_basis=True, 
+                                        features_type=features_type, threshold=threshold, 
+                                        features_load_path=features_load_path,
+                                        features_dump_path=features_dump_path,
+                                        clean_features=clean_features)                                        
+        uc, gradT, nut = dataset.extractUc()
         
-    else:    
-        print("Not implemented yet! Returning...")
-        return
+        training_list = [x, tb, uc, gradT, nut]  # what is used for training
+        metadata["with_tensor_basis"]=True
+        metadata["with_gamma"]=False    
+        
+    elif model_type == "TBNNS_hybrid":    
+        # This line processes the dataset and returns the features and tensor basis
+        # at each point in the dataset where gradients are significant.
+        x, tb = dataset.extractFeatures(with_tensor_basis=True, 
+                                        features_type=features_type, threshold=threshold, 
+                                        features_load_path=features_load_path,
+                                        features_dump_path=features_dump_path,
+                                        clean_features=clean_features)
+                                        
+        uc, gradT, nut = dataset.extractUc()
+        gamma = dataset.extractGamma(prt_cap, gamma_correction)
+        
+        training_list = [x, tb, uc, gradT, nut, gamma]  # what is used for training
+        metadata["with_tensor_basis"]=True
+        metadata["with_gamma"]=True    
 
     # Saves joblib file to disk with features/labels for this dataset
     # If data_path is None, use default name (appending _trainingdata to the end)
@@ -424,15 +467,14 @@ def produceTrainingFeatures(tecplot_in_path, *, data_path = None,
         data_path = tecplot_in_path[0:-4] + "_trainingdata.pckl" # default name
     
     # Save training features to disk
-    process.saveTrainingFeatures(training_list, model_type, data_path, downsample)
+    process.saveTrainingFeatures(training_list, metadata, data_path, downsample)
 
 
-def trainRFModel(features_list, description, model_path, *,
-                 downsample = None,
-                 n_trees = None, max_depth = None, min_samples_split = None,
-                 n_jobs = None):
+def trainRFModel(features_list, description, model_path, *, features_type="F1", 
+                 downsample=None, n_trees = None, max_depth = None, 
+                 min_samples_split = None, n_jobs = None):
     """
-    Trains a random forest models and saves it to disk.
+    Trains a random forest model and saves it to disk.
     
     Trains a random forest, isotropic model, with features and labels previously 
     calculated. Multiple files can be used at the same time (each file in the list
@@ -446,6 +488,9 @@ def trainRFModel(features_list, description, model_path, *,
     description -- A short, written description of the model being trained. It will be
                    saved to disk together with the model itself.
     model_path -- The path where the trained model will be saved in disk.
+    features_type -- optional argument, string determining the type of features that
+                     we are currently extracting. Options are "F1" and "F2". Default
+                     value is "F1".
     downsample -- optional, number that controls how we downsample the data before
                   using it to train. If None (default), it will read the number from 
                   constants.py. If this number is more than 1, then it represents the
@@ -479,9 +524,11 @@ def trainRFModel(features_list, description, model_path, *,
            
     for i, file in enumerate(features_list):
         if isinstance(downsample, list): # if list, take each element sequentially
-            x_features, gamma = process.loadTrainingFeatures(file, "RF", downsample[i])
+            x_features, gamma = process.loadTrainingFeatures(file, "RF", downsample[i],
+                                                             features_type)
         else:
-            x_features, gamma = process.loadTrainingFeatures(file, "RF", downsample)
+            x_features, gamma = process.loadTrainingFeatures(file, "RF", downsample,
+                                                             features_type)
             
         x_list.append(x_features)
         y_list.append(gamma)             
@@ -493,5 +540,108 @@ def trainRFModel(features_list, description, model_path, *,
     rf = RFModelIsotropic()
     rf.train(x_total, y_total, n_trees, max_depth, min_samples_split, n_jobs)
     rf.save(description, model_path)
-
     
+    
+def trainTBNNSModel(features_list_train, features_list_dev, description, model_path, 
+                    path_to_saver, *, FLAGS={}, features_type="F2",
+                    downsample_train=None, downsample_dev=None,):
+    """
+    Trains a TBNN-s and saves it to disk.
+    
+    Trains a TBNN-s, anisotropic model, with features and labels previously 
+    calculated. Multiple files can be used at the same time (each file in the list
+    comes from a given dataset. All optional arguments may only be used with the 
+    keyword (that's what * means)
+    
+    Arguments:
+    features_list_train -- list containing paths to files saved to disk with features
+                     and labels for training. These files are produced by the function
+                     above (produceTrainingFeatures) from Tecplot files.
+    features_list_dev -- list containing paths to files saved to disk with features
+                     and labels for the validation set. These files are produced by 
+                     the function above (produceTrainingFeatures) from Tecplot files.
+    description -- A short, written description of the model being trained. It will be
+                   saved to disk together with the model itself.
+    model_path -- The path where the trained model will be saved in disk.
+    path_to_saver -- The path where the model parameters are saved to disk, through the
+                    tf.Saver class. Usually, we want to put that in a folder called
+                    checkpoints.
+    FLAGS -- optional argument, dictionary that controls training parameters for 
+             the TBNNS model. Check the tbnns package to see what settings can be used.
+    features_type -- optional argument, string determining the type of features that
+                     we are currently extracting. Options are "F1" and "F2". Default
+                     value is "F2".
+    downsample_train -- optional, number that controls how we downsample the data before
+                  using it to train. If None (default), it will read the number from 
+                  constants.py. If this number is more than 1, then it represents the
+                  number of examples we want to save; if it is less than 1, it represents
+                  the ratio of all training examples we want to save. Can also be a list
+                  of numbers, in which case each number is applied to an element of
+                  features_list.
+    downsample_dev -- optional, same as above for the dev set.        
+    """
+    
+    # Reads the list of files provided for features/labels
+    print("{} file(s) were provided and will be used for training"\
+            .format(len(features_list_train)))
+    print("{} file(s) were provided and will be used for validation"\
+            .format(len(features_list_dev)))
+    
+    # Makes sure downsample list is the right size
+    if isinstance(downsample_train, list): 
+        assert len(downsample_train) == len(features_list_train), \
+           "downsample is a list, but it has the wrong number of entries!"
+    if isinstance(downsample_dev, list): # make sure list is the right size
+        assert len(downsample_dev) == len(features_list_dev), \
+           "downsample is a list, but it has the wrong number of entries!"    
+    
+    # Load training files
+    x_list_train=[]; tb_list_train=[]; uc_list_train=[]; 
+    gradT_list_train=[]; nut_list_train=[]
+    for i, file in enumerate(features_list_train):
+        if isinstance(downsample_train, list): # if list, take each element sequentially
+            x, tb, uc, gradT, nut = process.loadTrainingFeatures(file, "TBNNS", 
+                                                                 downsample_train[i], 
+                                                                 features_type)
+        else:
+            x, tb, uc, gradT, nut = process.loadTrainingFeatures(file, "TBNNS", 
+                                                                 downsample_train,
+                                                                 features_type)            
+        x_list_train.append(x); tb_list_train.append(tb); uc_list_train.append(uc)
+        gradT_list_train.append(gradT); nut_list_train.append(nut)   
+    x_train = np.concatenate(x_list_train, axis=0)
+    tb_train = np.concatenate(tb_list_train, axis=0)
+    uc_train = np.concatenate(uc_list_train, axis=0)
+    gradT_train = np.concatenate(gradT_list_train, axis=0)
+    nut_train = np.concatenate(nut_list_train, axis=0)    
+    
+    # Load dev files
+    x_list_dev=[]; tb_list_dev=[]; uc_list_dev=[]; 
+    gradT_list_dev=[]; nut_list_dev=[]
+    for i, file in enumerate(features_list_dev):
+        if isinstance(downsample_dev, list): # if list, take each element sequentially
+            x, tb, uc, gradT, nut = process.loadTrainingFeatures(file, "TBNNS", 
+                                                                 downsample_dev[i],
+                                                                 features_type)
+        else:
+            x, tb, uc, gradT, nut = process.loadTrainingFeatures(file, "TBNNS", 
+                                                                 downsample_dev,
+                                                                 features_type)            
+        x_list_dev.append(x); tb_list_dev.append(tb); uc_list_dev.append(uc)
+        gradT_list_dev.append(gradT); nut_list_dev.append(nut)   
+    x_dev = np.concatenate(x_list_dev, axis=0)
+    tb_dev = np.concatenate(tb_list_dev, axis=0)
+    uc_dev = np.concatenate(uc_list_dev, axis=0)
+    gradT_dev = np.concatenate(gradT_list_dev, axis=0)
+    nut_dev = np.concatenate(nut_list_dev, axis=0)    
+
+    # Edit FLAGS if necessary:
+    if features_type=="F1": FLAGS['num_features'] = constants.NUM_FEATURES_F1
+    elif features_type=="F2": FLAGS['num_features'] = constants.NUM_FEATURES_F2
+        
+    # Here, we train and save the model
+    nn = TBNNSModelAnisotropic()
+    nn.train(FLAGS, path_to_saver,
+             x_train, tb_train, uc_train, gradT_train, nut_train,
+             x_dev, tb_dev, uc_dev, gradT_dev, nut_dev)
+    nn.save(description, model_path)

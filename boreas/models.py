@@ -17,7 +17,8 @@ from tbnns.utils import cleanDiffusivity
 from joblib import Parallel, parallel_backend
 
 
-def makePrediction(model_type, model_path, ensemble, x, tb=None, std_flag=False):
+def makePrediction(model_type, model_path, x, features_type="F2", tb=None,
+                   ensemble=False, std_flag=False):
     """
     Predicts pr_t/alpha_ij from model specification and features. 
     
@@ -28,90 +29,90 @@ def makePrediction(model_type, model_path, ensemble, x, tb=None, std_flag=False)
     Arguments:
     model_type -- string, either "RF" or "TBNNS"
     model_path -- string or list, containing model path or list of model
-                  paths to be loaded
-    ensemble -- boolean, either True of False, determining whether a single instance
-                or a model ensemble should be used.
-    x -- numpy array containing features, shape (num_useful, ).
+                  paths to be loaded    
+    x -- numpy array containing features, shape (num_useful, num_features).    
+    features_type -- optional argument, string determining the type of features that
+                     we are currently extracting. Options are "F1" and "F2". Default
+                     value is "F2".
     tb -- optional, numpy array containing tensor basis for prediction of shape
           (num_useful, num_basis, 3, 3). Only used for TBNN-s model.
+    ensemble -- optional, boolean determining whether a single instance
+                or a model ensemble should be used. Only useful for TBNN-s model.
+                By default it is False.
     std_flag -- optional, boolean array that instructs the function to return the
                 standard deviation of the diffusivity INSTEAD of the diffusivity.
-                Only works when ensemble=True.
+                Only works when ensemble=True and we are using the TBNN-s model type.
     
     Returns:
-    pr_t or alpha_ij -- numpy array (num_useful, ) or (num_useful, 3, 3) for the 
-                       machine-learned turbulence quantity.
+    pr_t -- numpy array (num_useful, ) for the turbulent Prandtl number
+            OR
+    alphaij_final -- numpy array (num_useful, 3, 3) with turbulent diffusivity matrix
+    g_final -- numpy array (num_useful, num_basis) with the coefficients that multiply
+               the tensor basis elements
     """   
     
-    if model_type == "RF":        
-        if ensemble:
-            num_models = len(model_path)
-            prt_mean = np.zeros((x.shape[0],))
-            prt_second_moment = np.zeros((x.shape[0],))
-            print("Ensemble of {} models will be used.".format(num_models))
-            
-            for model in model_path:            
-                rf = RFModelIsotropic()
-                rf.loadFromDisk(model)
-                prt = rf.predict(x)
-                prt_mean += (1.0/num_models) * prt
-                if std_flag: prt_second_moment += (1.0/num_models) * (prt**2)
-            
-            if std_flag: 
-                prt_ML = np.sqrt(prt_second_moment - prt_mean**2)
-            else:
-                prt_ML = prt_mean        
-        else:
-            # Initialize model from disk and predict turbulent Prandtl number. If 
-            # model_path is None, just load the default model from disk.
-            rf = RFModelIsotropic()
-            rf.loadFromDisk(model_path)
-            prt_ML = rf.predict(x)
-
-        if std_flag:
-            print("The standard deviation across the ensemble is returned!")
-            
+    if features_type=="F1":
+        assert x.shape[1] == constants.NUM_FEATURES_F1, "Wrong number of features!"
+    elif features_type=="F2":
+        assert x.shape[1] == constants.NUM_FEATURES_F2, "Wrong number of features!"
+    else:
+        raise ValueError("Error! features_type must be either 'F1' or 'F2'")    
+    
+    if model_type == "RF":
+        # Initialize model from disk and predict turbulent Prandtl number. If 
+        # model_path is None, just load the default model from disk.
+        rf = RFModelIsotropic()
+        rf.loadFromDisk(model_path)
+        prt_ML = rf.predict(x)        
         return prt_ML
     
-    elif model_type == "TBNNS":
-    
+    elif model_type == "TBNNS":    
         if ensemble:
             num_models = len(model_path) 
             alphaij_mean = np.zeros((x.shape[0], 3, 3))
             alphaij_second_moment = np.zeros((x.shape[0], 3, 3))
+            g_mean = np.zeros((x.shape[0], constants.N_BASIS))
+            g_second_moment = np.zeros((x.shape[0], constants.N_BASIS))
             print("Ensemble of {} models will be used.".format(num_models))
             
             for model in model_path:
                 nn = TBNNSModelAnisotropic()
                 nn.loadFromDisk(model, verbose=True)
-                alpha = nn.predict(x, tb, clean=False)                
+                alpha, g = nn.predict(x, tb, clean=False)                
                 alphaij_mean += (1.0/num_models) * alpha
-                if std_flag: alphaij_second_moment += (1.0/num_models) * (alpha**2)
-            
+                g_mean += (1.0/num_models) * g
+                if std_flag: 
+                    alphaij_second_moment += (1.0/num_models) * (alpha**2)
+                    g_second_moment += (1.0/num_models) * (g**2)
+                    
             if std_flag: 
-                alphaij_ML = np.sqrt(alphaij_second_moment - alphaij_mean**2)
+                alphaij_final = np.sqrt(alphaij_second_moment - alphaij_mean**2)
+                g_final = np.sqrt(g_second_moment - g_mean**2)
             else:
-                alphaij_ML = alphaij_mean     
+                alphaij_final = alphaij_mean
+                g_final = g_mean
                 
         else:            
             # Initialize model from disk and predict tensorial diffusivity. If 
             # model_path is None, just load the default model from disk. 
             nn = TBNNSModelAnisotropic()
             nn.loadFromDisk(model_path, verbose=True)
-            alphaij_ML = nn.predict(x, tb, clean=False)
+            alphaij_final, g_final = nn.predict(x, tb, clean=True)
         
         if std_flag:
             print("The standard deviation across the ensemble is returned!")
-        if not std_flag:
+        elif ensemble: # clean at the very end only if ensemble is predicted
             # I set clean=False and only clean at the end to speed up the ensemble
             x_star = (x - nn._model.features_mean) / nn._model.features_std # normalize
-            alphaij_ML = cleanDiffusivity(alphaij_ML, test_inputs=x_star, 
-                                          prt_default=constants.PR_T,
-                                          gamma_min=1.0/constants.PRT_CAP)                                      
-        return alphaij_ML
+            alphaij_final, g_final = cleanDiffusivity(alphaij_final, g=g_final,
+                                                      test_inputs=x_star, 
+                                                      prt_default=constants.PRT_DEFAULT,
+                                                      gamma_min=1.0/constants.PRT_CAP)                                      
+        
+        return alphaij_final, g_final
     
     else:
-        print("Error! model_type must be either 'RF' or 'TBNNS'")
+        raise ValueError("Error! model_type must be either 'RF' or 'TBNNS'")
 
 
 class MLModel:
@@ -248,7 +249,7 @@ class RFModelIsotropic(MLModel):
         
         # Run sanity checks first
         assert x.shape[0] == y.shape[0], "Number of examples don't match!"
-        assert x.shape[1] == constants.N_FEATURES, "Wrong number of features!"
+        # assert x.shape[1] == constants.N_FEATURES, "Wrong number of features!"
         
         # Read default parameters from constants.py if None is provided
         if n_trees is None:
@@ -316,8 +317,7 @@ class RFModelIsotropic(MLModel):
         """       
         
         assert isinstance(self._model, RandomForestRegressor)
-        assert x.shape[1] == constants.N_FEATURES, "Wrong number of features!"
-        
+                
         print("ML model loaded: {}".format(self._description))
         print("Predicting Pr-t using RF model...", end="", flush=True)
         tic=timeit.default_timer() # timing
@@ -397,6 +397,88 @@ class TBNNSModelAnisotropic(MLModel):
                                                      fn_modify=fn_modify)
         
     
+    def train(self, FLAGS, path_to_saver, 
+              x_train, tb_train, uc_train, gradT_train, nut_train,
+              x_dev, tb_dev, uc_dev, gradT_dev, nut_dev,
+              loss_weight_train=None, loss_weight_dev=None, 
+              prt_desired_train=None, prt_desired_dev=None):
+        """
+        Trains the TBNN-s model
+        
+        Trains a model from scratch given its settings (in dictionary FLAGS), the
+        path where to save the checkpoints with parameters (path_to_saver), and all
+        the training and validation data. Note that this builds on TBNNS.train()
+        
+        Arguments:       
+        FLAGS -- dictionary containing different parameters for the network    
+        path_to_saver -- string containing the location in disk where the model 
+                         parameters will be saved after it is trained. 
+        x_train -- numpy array containing the features in the training set,
+                            of shape (num_train, num_features)
+        tb_train -- numpy array containing the tensor basis in the training 
+                              set, of shape (num_train, num_basis, 3, 3)
+        uc_train -- numpy array containing the label (uc vector) in the training set, of
+                    shape (num_train, 3)
+        gradT_train -- numpy array containing the gradient of c vector in the training
+                       set, of shape (num_train, 3)
+        nu_train -- numpy array containing the eddy viscosity in the training set
+                           dataset, of shape (num_train)
+        x_dev -- numpy array containing the features in the dev set,
+                          of shape (num_dev, num_features)
+        tb_dev -- numpy array containing the tensor basis in the dev 
+                            set, of shape (num_dev, num_basis, 3, 3)
+        uc_dev -- numpy array containing the label (uc vector) in the dev set, of
+                  shape (num_dev, 3)
+        gradT_dev -- numpy array containing the gradient of c vector in the dev
+                     set, of shape (num_dev, 3)
+        nut_dev -- numpy array containing the eddy viscosity in the dev set
+                         dataset, of shape (num_dev)
+        loss_weight_train -- optional argument, numpy array containing the loss_weight
+                             for the training data, which is used in some types of 
+                             prediction losses. Shape (num_train) or (num_train, 1) or
+                             (num_train, 3).
+        loss_weight_dev -- optional argument, numpy array containing the loss_weight
+                           for the dev data, which is used in some types of 
+                           prediction losses. Shape (num_dev) or (num_dev, 1) or 
+                           (num_dev, 3)        
+        prt_desired_train -- numpy array of shape (num_train) containing the desired Pr_t
+                             to enforce exactly in the training data when 
+                             FLAGS['enforce_prt']=True. Optional, only required when 
+                             FLAGS['enforce_prt']=True.
+        prt_desired_dev -- numpy array of shape (num_dev) containing the desired Pr_t
+                           to enforce exactly in the dev set when 
+                           FLAGS['enforce_prt']=True. Optional, only required when 
+                           FLAGS['enforce_prt']=True.        
+        """
+        
+        self._model.initializeGraph(FLAGS)       
+        
+        self._model.train(path_to_saver,
+              x_train, tb_train, uc_train, gradT_train, nut_train,
+              x_dev, tb_dev, uc_dev, gradT_dev, nut_dev, 
+              train_loss_weight=loss_weight_train, dev_loss_weight=loss_weight_dev,
+              train_prt_desired=prt_desired_train, dev_prt_desired=prt_desired_dev,
+              detailed_losses=True)
+    
+    
+    
+    def save(self, description, savepath):
+        """       
+        Saves a trained TBNN-s model to disk so it can be used later
+        
+        Arguments:        
+        description -- string containing a short, written description of the model,
+                       which is important when the model is loaded and used at a 
+                       later time.
+        savepath -- string containing the path in which the model is saved to disk        
+        """
+        
+        self._description = description
+        print("Model description: {}".format(description), flush=True)
+        print("Saving TBNN-s to {}...".format(savepath))
+        self._model.saveToDisk(description, savepath)                     
+              
+            
     def predict(self, x_features, tensor_basis, clean=True):
         """
         Predicts alpha_ij given the features using TBNN-s model. 
@@ -413,23 +495,25 @@ class TBNNSModelAnisotropic(MLModel):
         Returns:
         alphaij -- numpy array (num_useful, 3, 3) for the dimensionless tensor 
                    diffusivity in each cell
+        g -- numpy array (num_useful, num_basis) that contains the coefficient for
+             each element of the tensor basis
         """       
         
         assert isinstance(self._model, TBNNS), "Model is not a TBNN-s!"
-        assert x_features.shape[1] == constants.N_FEATURES, "Wrong number of features!"
+        
         assert tensor_basis.shape[1] == constants.N_BASIS, "Wrong number of tensor basis!"
         assert tensor_basis.shape[0] == x_features.shape[0], \
                                "number of features and tensor basis do not match!"               
         
         print("ML model loaded: {}".format(self._description))
         print("Predicting tensor diffusivity using TBNN-s model...", flush=True)
-        alphaij, _ = self._model.getTotalDiffusivity(x_features, tensor_basis,
-                                                     prt_default=constants.PR_T,
+        alphaij, g = self._model.getTotalDiffusivity(x_features, tensor_basis,
+                                                     prt_default=constants.PRT_DEFAULT,
                                                      gamma_min=1.0/constants.PRT_CAP,
                                                      clean=clean)
         print("Done!")
         
-        return alphaij
+        return alphaij, g
 
     
     def printParams(self):

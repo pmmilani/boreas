@@ -374,7 +374,8 @@ class Case:
                                                            default_names[i]) 
                                                                   
                                                                   
-    def extractFeatures(self, threshold=None, clean_features=True, 
+    def extractFeatures(self, with_tensor_basis=False, features_type="F2",
+                        threshold=None, clean_features=True, 
                         features_load_path=None, features_dump_path=None):
         """
         Extract quantities from the tecplot file and calculates features.
@@ -383,6 +384,12 @@ class Case:
         arrays and then calculating the features for ML prediction.
         
         Arguments:
+        with_tensor_basis -- optional argument, boolean that determines whether we extract
+                         tensor basis together with features or not. Should be True when
+                         TBNN-s is employed. Default value is False.
+        features_type -- optional argument, string determining the type of features that
+                         we are currently extracting. Options are "F1" and "F2". Default
+                         value is "F2".
         threshold -- magnitude cut-off for the temperature scalar gradient: only use 
                      points with (dimensionless) magnitude higher than this. Default is
                      None (which means the value in constants.py is employed).
@@ -407,18 +414,40 @@ class Case:
         
         # If we were passed a valid features_load_path, restore features from disk and
         # return them. Joblib .pckl file containing features is a list containing 
-        # ["RF", [x_features, should_use]]. Make sure to check for that structure.
+        # [metadata, [x_features, tensor_basis, should_use]]
+        print("Feature settings: features_type={} ".format(features_type)
+              + "and with_tensor_basis={}".format(with_tensor_basis))
         if features_load_path:
             if os.path.isfile(features_load_path):
                 print("A valid path for the features was provided "
                       + "(path provided: {})".format(features_load_path))
                 print("They will be read from disk...", end="", flush=True)
-                model_type, data = joblib.load(features_load_path) 
-                assert model_type == "RF", "Features saved are from wrong model! " + \
-                                          "Got '{}', expected 'RF'".format(model_type)
-                self.x_features, self.should_use = data
+                
+                metadata, data = joblib.load(features_load_path)
+                self.x_features, self.tensor_basis, self.should_use = data
+                
+                # Make sure the metadata matches what we need.
+                if with_tensor_basis is True:
+                    assert metadata['with_tensor_basis'], "No tensor basis!"
+                    assert self.tensor_basis is not None, "No tensor basis!"
+                if metadata['features_type']=="F1":
+                    msg = "Incompatible features_type or features.shape! " \
+                             + "metadata['features_type']=F1"
+                    assert features_type=="F1" or features_type=="F2", msg
+                    assert self.x_features.shape[1] == constants.NUM_FEATURES_F1, msg
+                elif metadata['features_type']=="F2":
+                    msg = "Incompatible features_type or features.shape! " \
+                             + "metadata['features_type']=F2"
+                    assert features_type=="F2", msg
+                    assert self.x_features.shape[1] == constants.NUM_FEATURES_F2, msg               
+                                
                 print(" Done!")
-                return self.x_features
+                
+                if features_type=="F2" and metadata['features_type']!="F2":
+                    self.x_features = np.concatenate((self.x_features[:, 0:6], 
+                                                      self.x_features[:, 13:15]), axis=1)
+                return self.x_features, self.tensor_basis                
+                
             else:
                 print("Invalid path provided for the features! "
                       + "(path provided: {})".format(features_load_path))
@@ -427,7 +456,7 @@ class Case:
         #---- This section performs all necessary commands to obtain features
         # Initialize the class containing appropriate mean flow quantities
         mean_qts = process.MeanFlowQuantities(self._zone, self.var_names, 
-                                              self.deltaT0)
+                                              features_type, self.deltaT0)
         
         # Determine which points should be used, shape (n_cells)
         if threshold is None:
@@ -435,114 +464,31 @@ class Case:
         self.should_use = process.calculateShouldUse(mean_qts, threshold)
         
         # Calculate features, shape (n_useful, N_FEATURES)
-        self.x_features = process.calculateFeatures(mean_qts, self.should_use)
+        self.x_features, self.tensor_basis = \
+                process.calculateFeatures(mean_qts, self.should_use, 
+                                          with_tensor_basis, features_type)
 
         # Remove outlier features if necessary
         if clean_features:
-            self.x_features, self.should_use = process.cleanFeatures(self.x_features,
-                                                                     self.should_use)
+            (self.x_features, self.tensor_basis, 
+                    self.should_use) = process.cleanFeatures(self.x_features,
+                                                             self.tensor_basis,
+                                                             self.should_use)
         #---- Finished calculating features       
         
         # If a dump path is supplied, then save features to disk to disk
         if features_dump_path:
             print("Saving features to disk...", end="", flush=True)
-            joblib.dump(["RF", [self.x_features, self.should_use]], features_dump_path, 
-                        compress=constants.COMPRESS, protocol=constants.PROTOCOL)
-            print(" Done!")
-        
-        # return the extracted feature array
-        return self.x_features
-    
-    
-    def extractFeaturesBases(self, threshold=None, clean_features=True, 
-                             features_load_path=None, features_dump_path=None):
-        """
-        Calculates features and tensor basis for the TBNN model.
-        
-        This method is called to extract all Tecplot quantities into appropriate numpy
-        arrays and then calculating the features and tensor basis for the anisotropic
-        ML model.
-        
-        Arguments:
-        threshold -- magnitude cut-off for the temperature scalar gradient: only use 
-                     points with (dimensionless) magnitude higher than this. Default is
-                     None (which means the value in constants.py is employed).
-        clean_features -- optional keyword argument. If this is True, we clean the
-                          features that are returned, and the should_use array is
-                          modified accordingly.
-        features_load_path -- optional keyword argument. If this is not None, this 
-                              function will attempt to read rans_data from disk and
-                              restore it instead of recalculating everything. The path
-                              where rans_data is located is given by rans_data_path.
-        features_dump_path -- optional keyword argument. If this is not None, and the 
-                              above argument is None, then this method will calculate
-                              rans_data for the current dataset and then save it to
-                              disk (to path specified by features_dump_path). Use it
-                              to avoid recalculating features (since it can be an 
-                              expensive operation)        
-        
-        Returns:
-        x_features -- a numpy array containing the features for prediction in the ML
-                      step. The shape should be (n_useful, n_features)
-        tensor_basis -- a numpy array containing the tensor basis at each point in
-                        the domain. The tensors are 3x3, so the shape is 
-                        (n_useful, n_basis, 3, 3)        
-        """
-        
-        # If we were passed a valid features_load_path, restore features from disk and
-        # return them. Joblib .pckl file containing features is a list containing 
-        # ["TBNNS", [x_features, tensor_basis, should_use]]. Make sure to check for that
-        # structure. 
-        if features_load_path:
-            if os.path.isfile(features_load_path):
-                print("A valid path for the features was provided "
-                      + "(path provided: {})".format(features_load_path))
-                print("They will be read from disk...", end="", flush=True)
-                model_type, data = joblib.load(features_load_path) # loads from disk
-                assert model_type == "TBNNS", "Features saved are from wrong model! " + \
-                                          "Got '{}', expected 'TBNNS'".format(model_type)
-                self.x_features, self.tensor_basis, self.should_use = data                                
-                print(" Done!")
-                return self.x_features, self.tensor_basis
-            else:
-                print("Invalid path provided for the features! "
-                      + "(path provided: {})".format(features_load_path))
-                print("Features will be calculated instead")
-                       
-        #---- This section performs all necessary commands to obtain features
-        # Initialize the class containing appropriate mean flow quantities
-        mean_qts = process.MeanFlowQuantities(self._zone, self.var_names, 
-                                              self.deltaT0)
-        
-        # Determine which points should be used, shape (n_cells)
-        if threshold is None:
-            threshold = constants.THRESHOLD
-        self.should_use = process.calculateShouldUse(mean_qts, threshold)
-        
-        # Calculate features and tensor basis, with shapes 
-        # (n_useful, N_FEATURES) and (n_useful, N_BASIS, 3, 3)
-        self.x_features, self.tensor_basis = \
-                          process.calculateFeaturesAndBasis(mean_qts, self.should_use)
-        
-        # Remove outlier features if necessary
-        if clean_features:
-            (self.x_features, self.should_use,
-                         self.tensor_basis) = process.cleanFeatures(self.x_features,
-                                                                    self.should_use,
-                                                                    self.tensor_basis)
-        #---- Finished calculating features       
-        
-        # If a dump path is supplied, then save features to disk to disk
-        if features_dump_path:
-            print("Saving features and basis to disk...", end="", flush=True)
-            joblib.dump(["TBNNS", [self.x_features, self.tensor_basis, self.should_use]],
+            metadata = {"with_tensor_basis": with_tensor_basis,
+                        "features_type": features_type}
+            joblib.dump([metadata, [self.x_features, self.tensor_basis, self.should_use]],
                         features_dump_path, 
                         compress=constants.COMPRESS, protocol=constants.PROTOCOL)
             print(" Done!")
         
         # return the extracted feature array
         return self.x_features, self.tensor_basis
-         
+        
     
     def addPrt(self, prt, varname, default_prt):
         """
@@ -645,7 +591,7 @@ class TestCase(Case):
         print(" Done!")
         
         # Clean diffusivity, from tbnns.utils
-        alphaij_mod = cleanDiffusivity(alphaij_mod, prt_default=constants.PR_T,
+        alphaij_mod = cleanDiffusivity(alphaij_mod, prt_default=constants.PRT_DEFAULT,
                                        gamma_min=1.0/constants.PRT_CAP, 
                                        clip_elements=True)    
     
@@ -687,6 +633,37 @@ class TestCase(Case):
 
         # Add should_use to the zone                
         self._zone.values("should_use")[:] = self.should_use
+    
+    
+    def addG(self, g, varnames, default_prt):
+        """
+        Adds the coefficient g to the Tecplot file
+        
+        Arguments:
+        g -- numpy array shape (num_useful, num_basis) with the coefficient g that
+             multiplies the equivalent tensor basis
+        varnames -- list of strings with the names of each coefficient for the dataset.
+        default_prt -- value for the default Pr_t to use where should_use == False.
+                       Can be None, in which case default value is read from constants.py
+        """
+        
+        assert g.shape[1] == len(varnames), "Wrong number of names for g!"
+        
+        # Create full tensor, at every point of the domain
+        g_full = process.fillG(g, self.should_use, default_prt)
+        
+        # Creates all necessary variables in the .plt file
+        for name in varnames:
+            self._tpdataset.add_variable(name=name,
+                                   dtypes=tecplot.constant.FieldDataType.Float,
+                                   locations=tecplot.constant.ValueLocation.CellCentered)        
+        
+        # Add g to the zone
+        assert self._zone.num_elements == g_full.shape[0], \
+                                          "g_full has wrong number of entries"
+        for i in range(constants.N_BASIS):
+            name = varnames[i]
+            self._zone.values(name)[:] = g_full[:,i]
         
     
     def fetchVariablesToWrite(self, variable_list):
@@ -748,8 +725,7 @@ class TestCase(Case):
                         to input diffusivity, so name should be uds-0, uds-1, etc.                        
         """
         
-        print("Writing interpolation file to read results in Fluent...", 
-                end="", flush=True)
+        print("Writing interpolation Fluent file {}...".format(path), end="", flush=True)
         
         # Check to make sure the number of names is the same as the number of variables,
         # and is greater than one.
@@ -799,8 +775,7 @@ class TestCase(Case):
                         to input diffusivity, so name should be uds-0, uds-1, etc.                        
         """
         
-        print("Writing csv file with results...", 
-                end="", flush=True)
+        print("Writing csv file {}...".format(path), end="", flush=True)
                 
         # Check to make sure the number of names is the same as the number of variables,
         # and is greater than one.
@@ -920,5 +895,29 @@ class TrainingCase(Case):
         
         gamma = process.calculateGamma(mean_qts, prt_cap, use_correction)
         
-        return gamma   
+        return gamma
+
+    
+    def extractUc(self):
+        """
+        Extracts the values of uc, gradT, and nut which are used to train the TBNN-s
+        
+                          
+        Returns:
+        uc -- numpy array containing u'c' vector of shape (n_useful,3)
+        gradT -- numpy array containing gradient of temperature of shape (n_useful,3)
+        nut -- numpy array containing eddy kinematic viscosity of shape (n_useful,)
+        """
+        
+        # This contains all info we need as arrays. The arrays are already
+        # filtered according to should_use, so they have shape (n_useful,...)
+        # This means that this function can only run after extractFeatures
+        mean_qts = process.MeanFlowQuantities(self._zone, self.var_names, labels=True,
+                                              mask=self.should_use)
+                                              
+        uc = mean_qts.uc
+        gradT = mean_qts.gradT
+        nut = mean_qts.mut/mean_qts.rho
+        
+        return uc, gradT, nut
         

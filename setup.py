@@ -11,8 +11,8 @@ with open("README.md", 'r') as f:
 
 setup(
    name='boreas',
-   version='1.3.0',
-   description='Boreas v1.3.0 - a package for automated deployment of machine-learned turbulent mixing models for film cooling',
+   version='1.3.1',
+   description='Boreas v1.3.1 - a package for automated deployment of machine-learned turbulent mixing models for film cooling',
    license='Apache',
    long_description=long_description,
    author='Pedro M. Milani',
